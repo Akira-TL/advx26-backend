@@ -7,7 +7,8 @@ import re
 import sqlite3
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .auth import (
     DEVICE_ROLE_PLAYBACK,
@@ -35,12 +36,27 @@ def create_device_router(
     object_store: FileSystemObjectStore,
     tokens: DeviceTokenService,
 ) -> APIRouter:
-    router = APIRouter()
+    router = APIRouter(tags=["devices"])
+    trigger_scheme = HTTPBearer(
+        auto_error=False,
+        scheme_name="TriggerToken",
+        description="Fixed Bearer Token provisioned to the Trigger board.",
+    )
+    playback_scheme = HTTPBearer(
+        auto_error=False,
+        scheme_name="PlaybackToken",
+        description="Fixed Bearer Token provisioned to the Playback board.",
+    )
 
-    def require_role(expected_role: str):
+    def require_role(expected_role: str, scheme: HTTPBearer):
         async def dependency(
-            authorization: Annotated[str | None, Header()] = None,
+            credentials: HTTPAuthorizationCredentials | None = Security(scheme),
         ) -> DevicePrincipal:
+            authorization = (
+                f"{credentials.scheme} {credentials.credentials}"
+                if credentials is not None
+                else None
+            )
             principal = tokens.authenticate(authorization)
             if principal is None:
                 raise HTTPException(
@@ -54,10 +70,14 @@ def create_device_router(
 
         return dependency
 
-    require_trigger = require_role(DEVICE_ROLE_TRIGGER)
-    require_playback = require_role(DEVICE_ROLE_PLAYBACK)
+    require_trigger = require_role(DEVICE_ROLE_TRIGGER, trigger_scheme)
+    require_playback = require_role(DEVICE_ROLE_PLAYBACK, playback_scheme)
 
-    @router.get("/c/{content_id}")
+    @router.get(
+        "/c/{content_id}",
+        summary="Resolve NFC content for Trigger",
+        description="Return the complete READY Compact Content document for the fixed Trigger board.",
+    )
     async def resolve_compact_content(
         content_id: str,
         request: Request,
@@ -98,9 +118,17 @@ def create_device_router(
             },
         )
 
-    @router.api_route(
+    @router.head(
         "/api/v1/contents/{content_id}/assets/{asset_kind}",
-        methods=["GET", "HEAD"],
+        summary="Inspect immutable playback asset",
+        description="Playback-only HEAD response with Range and If-Range support.",
+        operation_id="head_playback_asset",
+    )
+    @router.get(
+        "/api/v1/contents/{content_id}/assets/{asset_kind}",
+        summary="Download immutable playback asset",
+        description="Playback-only GET response with Range and If-Range support.",
+        operation_id="get_playback_asset",
     )
     async def get_playback_asset(
         content_id: str,

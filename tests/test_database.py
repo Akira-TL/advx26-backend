@@ -27,7 +27,6 @@ class DatabaseFoundationTests(unittest.TestCase):
 
             self.assertTrue(
                 {
-                    "packages",
                     "users",
                     "user_tokens",
                     "contents",
@@ -35,6 +34,7 @@ class DatabaseFoundationTests(unittest.TestCase):
                     "media_objects",
                 }.issubset(table_names)
             )
+            self.assertNotIn("packages", table_names)
 
 
 if __name__ == "__main__":

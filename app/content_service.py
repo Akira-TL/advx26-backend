@@ -37,15 +37,19 @@ class ContentService:
         object_store: FileSystemObjectStore,
         max_audio_bytes: int,
         chunk_size: int,
+        max_attempts: int = 3,
     ) -> None:
         if max_audio_bytes <= 0:
             raise ValueError("max_audio_bytes must be positive")
         if chunk_size <= 0:
             raise ValueError("chunk_size must be positive")
+        if max_attempts <= 0:
+            raise ValueError("max_attempts must be positive")
         self.database = database
         self.object_store = object_store
         self.max_audio_bytes = max_audio_bytes
         self.chunk_size = chunk_size
+        self.max_attempts = max_attempts
 
     async def upload(self, *, owner_user_id: str, audio: UploadFile) -> UploadedContent:
         content_id = uuid.uuid4().hex
@@ -73,6 +77,7 @@ class ContentService:
                     source_sha256=sha256,
                     job_id=uuid.uuid4().hex,
                     media_object_id=uuid.uuid4().hex,
+                    max_attempts=self.max_attempts,
                     created_at=now,
                 )
             except Exception:

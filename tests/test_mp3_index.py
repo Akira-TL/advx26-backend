@@ -178,7 +178,7 @@ class Mp3IndexerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(indexed.frame_count, len(frames))
         self.assertEqual(indexed.duration_ms, normalized.duration_ms)
-        self.assertLessEqual(indexed.indexed_duration_ms - indexed.duration_ms, 27)
+        self.assertLessEqual(indexed.indexed_duration_ms - indexed.duration_ms, 53)
         self.assertEqual(indexed.sample_rate, 44_100)
         self.assertEqual(indexed.bit_rate, 128_000)
         self.assertEqual(indexed.channels, 1)

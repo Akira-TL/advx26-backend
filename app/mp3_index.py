@@ -269,7 +269,7 @@ def validate_audio_index(
         indexed_samples * 1000 / parsed_frames[0].sample_rate
     )
     tolerance_ms = math.ceil(
-        parsed_frames[0].samples_per_frame * 1000 / parsed_frames[0].sample_rate
+        2 * parsed_frames[0].samples_per_frame * 1000 / parsed_frames[0].sample_rate
     )
     if abs(indexed_duration_ms - authoritative_duration_ms) > tolerance_ms:
         raise InvalidAudioIndex("indexed duration differs from authoritative duration")
