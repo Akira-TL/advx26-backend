@@ -6,6 +6,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from .mp3_index import InvalidMp3, build_audio_index, parse_mp3_frames
+
 
 RANGE_PATTERN = re.compile(r"^bytes=(\d*)-(\d*)$")
 
@@ -31,6 +33,34 @@ def create_debug_media_router(*, media_dir: Path) -> APIRouter:
             request=request,
             path=root / "monitoring-30s.mp3",
             media_type="audio/mpeg",
+        )
+
+    @router.head(
+        "/debug/audio.idx",
+        response_class=Response,
+        operation_id="headDebugAudioIndex",
+        include_in_schema=False,
+    )
+    @router.get(
+        "/debug/audio.idx",
+        response_class=Response,
+        operation_id="getDebugAudioIndex",
+        include_in_schema=False,
+    )
+    async def debug_audio_index(request: Request) -> Response:
+        try:
+            audio = (root / "monitoring-30s.mp3").read_bytes()
+            payload = build_audio_index(parse_mp3_frames(audio))
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail="调试音频尚未生成") from error
+        except InvalidMp3 as error:
+            raise HTTPException(status_code=503, detail="调试音频无法建立索引") from error
+        except OSError as error:
+            raise HTTPException(status_code=503, detail="调试音频不可用") from error
+        return _serve_payload(
+            request=request,
+            payload=payload,
+            media_type="application/octet-stream",
         )
 
     @router.head(
@@ -63,6 +93,10 @@ def _serve_file(*, request: Request, path: Path, media_type: str) -> Response:
     except OSError as error:
         raise HTTPException(status_code=503, detail="调试媒体不可用") from error
 
+    return _serve_payload(request=request, payload=payload, media_type=media_type)
+
+
+def _serve_payload(*, request: Request, payload: bytes, media_type: str) -> Response:
     total = len(payload)
     digest = hashlib.sha256(payload).hexdigest()
     etag = f'"{digest}"'
