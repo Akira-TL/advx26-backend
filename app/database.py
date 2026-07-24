@@ -293,6 +293,104 @@ class Database:
             )
             return cursor.rowcount == 1
 
+    def get_content(self, content_id: str) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT
+                    contents.*,
+                    processing_jobs.id AS job_id,
+                    processing_jobs.status AS processing_status,
+                    processing_jobs.stage AS processing_stage
+                FROM contents
+                LEFT JOIN processing_jobs ON processing_jobs.content_id = contents.id
+                WHERE contents.id = ? AND contents.state != 'DELETED'
+                """,
+                (content_id,),
+            ).fetchone()
+
+    def publish_ready_content(
+        self,
+        *,
+        content_id: str,
+        duration_ms: int,
+        media_objects: list[dict[str, Any]],
+        ready_at: str,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            content = connection.execute(
+                "SELECT * FROM contents WHERE id = ? AND state != 'DELETED'",
+                (content_id,),
+            ).fetchone()
+            if content is None:
+                raise ValueError("content does not exist")
+            if content["duration_ms"] != duration_ms:
+                raise ValueError("content duration changed before publication")
+
+            for media_object in media_objects:
+                existing = connection.execute(
+                    "SELECT * FROM media_objects WHERE content_id = ? AND kind = ?",
+                    (content_id, media_object["kind"]),
+                ).fetchone()
+                comparable = (
+                    media_object["object_key"],
+                    media_object["content_type"],
+                    media_object["byte_length"],
+                    media_object["sha256"],
+                    media_object["etag"],
+                )
+                if existing is not None:
+                    current = (
+                        existing["object_key"],
+                        existing["content_type"],
+                        existing["byte_length"],
+                        existing["sha256"],
+                        existing["etag"],
+                    )
+                    if current != comparable:
+                        raise ValueError("published media object is immutable")
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO media_objects (
+                        id, content_id, kind, object_key, content_type,
+                        byte_length, sha256, etag, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        media_object["id"],
+                        content_id,
+                        media_object["kind"],
+                        media_object["object_key"],
+                        media_object["content_type"],
+                        media_object["byte_length"],
+                        media_object["sha256"],
+                        media_object["etag"],
+                        ready_at,
+                    ),
+                )
+
+            connection.execute(
+                """
+                UPDATE contents
+                SET state = 'READY',
+                    error_code = NULL,
+                    error_message = NULL,
+                    ready_at = COALESCE(ready_at, ?),
+                    updated_at = ?
+                WHERE id = ? AND state != 'DELETED'
+                """,
+                (ready_at, ready_at, content_id),
+            )
+
+    def get_media_objects(self, content_id: str) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            return connection.execute(
+                "SELECT * FROM media_objects WHERE content_id = ? ORDER BY kind",
+                (content_id,),
+            ).fetchall()
+
     def list_owned_contents(self, owner_user_id: str) -> list[sqlite3.Row]:
         with self.connect() as connection:
             return connection.execute(

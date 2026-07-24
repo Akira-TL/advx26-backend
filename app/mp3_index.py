@@ -56,6 +56,7 @@ class IndexedMp3:
     index_version: int
     frame_count: int
     duration_ms: int
+    indexed_duration_ms: int
 
 
 class Mp3Indexer:
@@ -89,6 +90,11 @@ class Mp3Indexer:
 
         audio_sha256 = hashlib.sha256(audio).hexdigest()
         index_sha256 = hashlib.sha256(index).hexdigest()
+        indexed_duration_ms = round(
+            (frames[-1].sample_position + frames[-1].samples_per_frame)
+            * 1000
+            / frames[0].sample_rate
+        )
         result = IndexedMp3(
             audio_key=audio_key,
             index_key=index_key,
@@ -104,11 +110,8 @@ class Mp3Indexer:
             channels=frames[0].channels,
             index_version=INDEX_VERSION,
             frame_count=len(frames),
-            duration_ms=round(
-                (frames[-1].sample_position + frames[-1].samples_per_frame)
-                * 1000
-                / frames[0].sample_rate
-            ),
+            duration_ms=authoritative_duration_ms,
+            indexed_duration_ms=indexed_duration_ms,
         )
         metadata = json.dumps(
             {
@@ -132,6 +135,7 @@ class Mp3Indexer:
                     "record_count": result.frame_count,
                 },
                 "duration_ms": result.duration_ms,
+                "indexed_duration_ms": result.indexed_duration_ms,
             },
             sort_keys=True,
             separators=(",", ":"),
