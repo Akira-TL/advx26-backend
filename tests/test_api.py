@@ -54,6 +54,9 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         response = await self.client.get("/api/v1/ready")
 
         self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["component"], "object_store")
+        self.assertTrue(response.json()["detail"]["error"])
+        self.assertTrue(response.json()["detail"]["exception"])
 
     async def test_readiness_reports_missing_media_tool(self) -> None:
         self.app.state.media_tools.ffmpeg_binary = "missing-ffmpeg-for-test"
@@ -61,6 +64,24 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         response = await self.client.get("/api/v1/ready")
 
         self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["component"], "media_tools")
+        self.assertIn("媒体处理工具不可用", response.json()["detail"]["error"])
+        self.assertEqual(response.json()["detail"]["exception"], "MediaToolUnavailable")
+
+    async def test_readiness_reports_missing_device_tokens(self) -> None:
+        self.app.state.device_tokens.trigger_token = ""
+
+        response = await self.client.get("/api/v1/ready")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.json()["detail"],
+            {
+                "component": "device_tokens",
+                "error": "Trigger and Playback tokens must be configured",
+                "exception": "RuntimeError",
+            },
+        )
 
     async def test_openapi_contains_only_new_roles_and_contract(self) -> None:
         schema = (await self.client.get("/openapi.json")).json()

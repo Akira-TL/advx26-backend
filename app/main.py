@@ -5,7 +5,7 @@ import re
 import sqlite3
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Callable
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Response, Security, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +20,7 @@ from .device_api import create_device_router
 from .frame_renderer import HeadlessFrameRenderer
 from .job_repository import ProcessingJobRepository
 from .lifecycle import StagingCleanup
-from .media_tools import MediaToolError, MediaTools
+from .media_tools import MediaTools
 from .object_store import FileSystemObjectStore
 from .openapi_config import error_responses, install_openapi
 from .processing_worker import JobProcessor, ProcessingWorker
@@ -265,20 +265,43 @@ def create_app(
         operation_id="getReadiness",
     )
     async def ready() -> ReadinessResponse:
-        try:
-            database.check()
-            object_store.check()
-            media_tools.check()
-            device_tokens.check_configured()
-            if uses_default_processor:
-                frame_renderer.check()
-            worker_task = app.state.worker_task
-            if processing_worker is not None and (
-                worker_task is None or worker_task.done()
-            ):
-                raise RuntimeError("processing worker stopped")
-        except (OSError, sqlite3.Error, RuntimeError, MediaToolError) as error:
-            raise HTTPException(status_code=503, detail="服务依赖尚未就绪") from error
+        checks: list[tuple[str, Callable[[], None]]] = [
+            ("database", database.check),
+            ("object_store", object_store.check),
+            ("media_tools", media_tools.check),
+            ("device_tokens", device_tokens.check_configured),
+        ]
+        if uses_default_processor:
+            checks.append(("renderer", frame_renderer.check))
+
+        for component, check in checks:
+            try:
+                check()
+            except Exception as error:
+                message = str(error).strip() or type(error).__name__
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "component": component,
+                        "error": message,
+                        "exception": type(error).__name__,
+                    },
+                ) from error
+
+        worker_task = app.state.worker_task
+        if processing_worker is not None and (
+            worker_task is None or worker_task.done()
+        ):
+            error = RuntimeError("processing worker stopped")
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "component": "worker",
+                    "error": str(error),
+                    "exception": type(error).__name__,
+                },
+            ) from error
+
         return ReadinessResponse(
             worker="running" if processing_worker is not None else "disabled"
         )
