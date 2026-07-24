@@ -163,6 +163,107 @@ class MediaTools:
             streams=streams,
         )
 
+    def encode_h264_png_sequence(
+        self,
+        *,
+        frame_pattern: Path,
+        frame_count: int,
+        output_path: Path,
+    ) -> None:
+        if frame_count <= 0:
+            raise ValueError("frame_count must be positive")
+        self.runner.run(
+            [
+                self.ffmpeg_binary,
+                "-v",
+                "error",
+                "-nostdin",
+                "-y",
+                "-fflags",
+                "+bitexact",
+                "-framerate",
+                "10",
+                "-start_number",
+                "0",
+                "-i",
+                str(frame_pattern),
+                "-frames:v",
+                str(frame_count),
+                "-map",
+                "0:v:0",
+                "-map_metadata",
+                "-1",
+                "-an",
+                "-sn",
+                "-dn",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-profile:v",
+                "baseline",
+                "-level:v",
+                "3.0",
+                "-pix_fmt",
+                "yuv420p",
+                "-r",
+                "10",
+                "-g",
+                "10",
+                "-keyint_min",
+                "10",
+                "-sc_threshold",
+                "0",
+                "-bf",
+                "0",
+                "-threads",
+                "1",
+                "-x264-params",
+                "open-gop=0:force-cfr=1:repeat-headers=1",
+                "-movflags",
+                "+faststart",
+                "-video_track_timescale",
+                "1000",
+                "-use_editlist",
+                "0",
+                str(output_path),
+            ],
+            timeout_seconds=self.timeout_seconds,
+        )
+
+    def inspect_video(self, path: Path) -> dict[str, object]:
+        result = self.runner.run(
+            [
+                self.ffprobe_binary,
+                "-v",
+                "error",
+                "-print_format",
+                "json",
+                "-show_streams",
+                "-show_packets",
+                "-show_frames",
+                str(path),
+            ],
+            timeout_seconds=self.timeout_seconds,
+        )
+        try:
+            payload = json.loads(result.stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise MediaProbeFailed("FFprobe 返回了无效视频结果") from error
+        if not isinstance(payload, dict):
+            raise MediaProbeFailed("FFprobe 返回了无效视频结果")
+        combined = payload.pop("packets_and_frames", None)
+        if isinstance(combined, list):
+            payload["packets"] = [
+                item for item in combined
+                if isinstance(item, dict) and item.get("type") == "packet"
+            ]
+            payload["frames"] = [
+                item for item in combined
+                if isinstance(item, dict) and item.get("type") == "frame"
+            ]
+        return payload
+
     def normalize_audio(
         self,
         *,
