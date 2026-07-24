@@ -13,6 +13,12 @@ class Settings:
     object_store_dir: Path | None = None
     object_staging_dir: Path | None = None
     api_token: str = field(default_factory=lambda: os.getenv("BACKEND_API_TOKEN", ""))
+    trigger_token: str = field(
+        default_factory=lambda: os.getenv("BACKEND_TRIGGER_TOKEN", "")
+    )
+    playback_token: str = field(
+        default_factory=lambda: os.getenv("BACKEND_PLAYBACK_TOKEN", "")
+    )
     cors_origins: str = field(default_factory=lambda: os.getenv("BACKEND_CORS_ORIGINS", "*"))
     ffmpeg_binary: str = field(
         default_factory=lambda: os.getenv("BACKEND_FFMPEG_BINARY", "ffmpeg")

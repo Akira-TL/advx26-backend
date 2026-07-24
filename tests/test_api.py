@@ -36,6 +36,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             object_store_dir=root / "storage" / "objects",
             object_staging_dir=root / "storage" / "object-staging",
             api_token="test-token",
+            trigger_token="trigger-test-token",
+            playback_token="playback-test-token",
         )
         self.settings = settings
         self.app = create_app(settings)

@@ -18,10 +18,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
-from .auth import UserPrincipal, UserTokenService
+from .auth import DeviceTokenService, UserPrincipal, UserTokenService
 from .config import Settings
 from .content_service import ContentService, EmptySourceAudio, SourceAudioTooLarge
 from .database import Database
+from .device_api import create_device_router
 from .job_repository import ProcessingJobRepository
 from .media_tools import MediaToolError, MediaTools
 from .object_store import FileSystemObjectStore
@@ -150,6 +151,10 @@ def create_app(
         timeout_seconds=settings.media_command_timeout_seconds,
     )
     user_tokens = UserTokenService(database)
+    device_tokens = DeviceTokenService(
+        trigger_token=settings.trigger_token,
+        playback_token=settings.playback_token,
+    )
     content_service = ContentService(
         database=database,
         object_store=object_store,
@@ -207,6 +212,7 @@ def create_app(
     app.state.object_store = object_store
     app.state.media_tools = media_tools
     app.state.user_tokens = user_tokens
+    app.state.device_tokens = device_tokens
     app.state.content_service = content_service
     app.state.job_repository = job_repository
     app.state.processing_worker = processing_worker
@@ -216,13 +222,29 @@ def create_app(
         allow_origins=settings.allowed_origins,
         allow_credentials=settings.allowed_origins != ["*"],
         allow_methods=["GET", "HEAD", "POST", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Range"],
-        expose_headers=["Accept-Ranges", "Content-Range", "Content-Length", "ETag"],
+        allow_headers=["Authorization", "Content-Type", "Range", "If-Range"],
+        expose_headers=[
+            "Accept-Ranges",
+            "Content-Range",
+            "Content-Length",
+            "ETag",
+            "Cache-Control",
+            "Vary",
+        ],
+    )
+    app.include_router(
+        create_device_router(
+            database=database,
+            object_store=object_store,
+            tokens=device_tokens,
+        )
     )
 
     async def require_write_token(
         authorization: Annotated[str | None, Header()] = None,
     ) -> None:
+        if device_tokens.authenticate(authorization) is not None:
+            raise HTTPException(status_code=403, detail="设备 Token 无权写入内容")
         if not settings.api_token:
             return
         scheme, _, token = (authorization or "").partition(" ")
@@ -269,6 +291,7 @@ def create_app(
             probe.unlink()
             object_store.check()
             media_tools.check()
+            device_tokens.check_configured()
             worker_task = app.state.worker_task
             if worker_task is not None and worker_task.done():
                 raise RuntimeError("processing worker stopped")
@@ -281,7 +304,12 @@ def create_app(
         response_model=UserTokenIssued,
         status_code=201,
     )
-    async def issue_user_token(response: Response) -> UserTokenIssued:
+    async def issue_user_token(
+        response: Response,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> UserTokenIssued:
+        if device_tokens.authenticate(authorization) is not None:
+            raise HTTPException(status_code=403, detail="设备 Token 无权签发用户 Token")
         issued = user_tokens.issue()
         response.headers["Cache-Control"] = "no-store"
         return UserTokenIssued(user_id=issued.user_id, token=issued.token)

@@ -391,6 +391,26 @@ class Database:
                 (content_id,),
             ).fetchall()
 
+    def get_ready_media_object(
+        self,
+        *,
+        content_id: str,
+        kind: str,
+    ) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT media_objects.*
+                FROM media_objects
+                JOIN contents ON contents.id = media_objects.content_id
+                WHERE media_objects.content_id = ?
+                  AND media_objects.kind = ?
+                  AND contents.state = 'READY'
+                  AND contents.deleted_at IS NULL
+                """,
+                (content_id, kind),
+            ).fetchone()
+
     def list_owned_contents(self, owner_user_id: str) -> list[sqlite3.Row]:
         with self.connect() as connection:
             return connection.execute(
