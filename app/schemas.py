@@ -29,6 +29,9 @@ class ContentSource(BaseModel):
 class ContentSummary(BaseModel):
     content_id: str
     state: str
+    processing_stage: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
     display_label: str
     created_at: str
     updated_at: str

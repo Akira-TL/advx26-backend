@@ -18,6 +18,8 @@ class Settings:
     max_model_bytes: int = 500 * 1024 * 1024
     max_video_bytes: int = 2 * 1024 * 1024 * 1024
     chunk_size: int = 1024 * 1024
+    worker_poll_seconds: float = 1.0
+    job_lease_seconds: float = 60.0
 
     def __post_init__(self) -> None:
         self.base_dir = Path(self.base_dir).resolve()
@@ -29,6 +31,10 @@ class Settings:
         self.object_staging_dir = Path(
             self.object_staging_dir or self.storage_dir / "object-staging"
         ).resolve()
+        if self.worker_poll_seconds <= 0:
+            raise ValueError("worker_poll_seconds must be positive")
+        if self.job_lease_seconds <= 0:
+            raise ValueError("job_lease_seconds must be positive")
 
     @property
     def packages_dir(self) -> Path:

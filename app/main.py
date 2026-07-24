@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import mimetypes
@@ -7,7 +8,7 @@ import os
 import re
 import sqlite3
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any
@@ -21,7 +22,9 @@ from .auth import UserPrincipal, UserTokenService
 from .config import Settings
 from .content_service import ContentService, EmptySourceAudio, SourceAudioTooLarge
 from .database import Database
+from .job_repository import ProcessingJobRepository
 from .object_store import FileSystemObjectStore
+from .processing_worker import JobProcessor, ProcessingWorker
 from .schemas import (
     ContentCreated,
     ContentList,
@@ -98,6 +101,9 @@ def row_to_content_summary(row: sqlite3.Row) -> ContentSummary:
     return ContentSummary(
         content_id=content_id,
         state=row["state"],
+        processing_stage=row["processing_stage"],
+        error_code=row["error_code"],
+        error_message=row["error_message"],
         display_label=row["display_label"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -125,7 +131,11 @@ def row_to_summary(row: sqlite3.Row) -> PackageSummary:
     )
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    job_processor: JobProcessor | None = None,
+) -> FastAPI:
     settings = settings or Settings()
     database = Database(settings.database_path)
     object_store = FileSystemObjectStore(
@@ -140,6 +150,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         max_audio_bytes=settings.max_audio_bytes,
         chunk_size=settings.chunk_size,
     )
+    job_repository = ProcessingJobRepository(database)
+    processing_worker = (
+        ProcessingWorker(
+            repository=job_repository,
+            processor=job_processor,
+            lease_seconds=settings.job_lease_seconds,
+            poll_seconds=settings.worker_poll_seconds,
+        )
+        if job_processor is not None
+        else None
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -147,7 +168,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.staging_dir.mkdir(parents=True, exist_ok=True)
         database.initialize()
         object_store.initialize()
-        yield
+        worker_task: asyncio.Task[None] | None = None
+        if processing_worker is not None:
+            worker_task = asyncio.create_task(
+                processing_worker.run_forever(),
+                name="cloud-media-processing-worker",
+            )
+            app.state.worker_task = worker_task
+        try:
+            yield
+        finally:
+            if processing_worker is not None and worker_task is not None:
+                processing_worker.stop()
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(worker_task),
+                        timeout=max(1.0, settings.worker_poll_seconds * 2),
+                    )
+                except TimeoutError:
+                    worker_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await worker_task
 
     app = FastAPI(
         title="Multimedia Package Backend",
@@ -160,6 +201,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.object_store = object_store
     app.state.user_tokens = user_tokens
     app.state.content_service = content_service
+    app.state.job_repository = job_repository
+    app.state.processing_worker = processing_worker
+    app.state.worker_task = None
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
@@ -217,7 +261,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             probe.write_bytes(b"ok")
             probe.unlink()
             object_store.check()
-        except (OSError, sqlite3.Error) as error:
+            worker_task = app.state.worker_task
+            if worker_task is not None and worker_task.done():
+                raise RuntimeError("processing worker stopped")
+        except (OSError, sqlite3.Error, RuntimeError) as error:
             raise HTTPException(status_code=503, detail="存储或数据库不可用") from error
         return {"status": "ready"}
 

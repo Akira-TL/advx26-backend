@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS contents (
     source_byte_length INTEGER NOT NULL CHECK (source_byte_length >= 0),
     source_sha256 TEXT NOT NULL,
     error_code TEXT,
+    error_message TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     ready_at TEXT,
@@ -92,6 +93,8 @@ CREATE TABLE IF NOT EXISTS processing_jobs (
     max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts > 0),
     lease_owner TEXT,
     lease_expires_at TEXT,
+    error_code TEXT,
+    error_message TEXT,
     last_error TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -128,6 +131,25 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            self._ensure_column(connection, "contents", "error_message", "TEXT")
+            self._ensure_column(connection, "processing_jobs", "error_code", "TEXT")
+            self._ensure_column(connection, "processing_jobs", "error_message", "TEXT")
+
+    @staticmethod
+    def _ensure_column(
+        connection: sqlite3.Connection,
+        table: str,
+        column: str,
+        declaration: str,
+    ) -> None:
+        existing = {
+            row["name"]
+            for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in existing:
+            connection.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column} {declaration}"
+            )
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -204,6 +226,7 @@ class Database:
         source_sha256: str,
         job_id: str,
         media_object_id: str,
+        max_attempts: int = 3,
         created_at: str,
     ) -> None:
         with self.connect() as connection:
@@ -232,10 +255,10 @@ class Database:
             connection.execute(
                 """
                 INSERT INTO processing_jobs (
-                    id, content_id, status, stage, created_at, updated_at
-                ) VALUES (?, ?, 'QUEUED', 'UPLOADED', ?, ?)
+                    id, content_id, status, stage, max_attempts, created_at, updated_at
+                ) VALUES (?, ?, 'QUEUED', 'UPLOADED', ?, ?, ?)
                 """,
-                (job_id, content_id, created_at, created_at),
+                (job_id, content_id, max_attempts, created_at, created_at),
             )
             connection.execute(
                 """
@@ -260,9 +283,14 @@ class Database:
         with self.connect() as connection:
             return connection.execute(
                 """
-                SELECT * FROM contents
-                WHERE owner_user_id = ? AND state != 'DELETED'
-                ORDER BY created_at DESC
+                SELECT
+                    contents.*,
+                    processing_jobs.stage AS processing_stage,
+                    processing_jobs.status AS processing_status
+                FROM contents
+                LEFT JOIN processing_jobs ON processing_jobs.content_id = contents.id
+                WHERE contents.owner_user_id = ? AND contents.state != 'DELETED'
+                ORDER BY contents.created_at DESC
                 """,
                 (owner_user_id,),
             ).fetchall()
@@ -276,8 +304,15 @@ class Database:
         with self.connect() as connection:
             return connection.execute(
                 """
-                SELECT * FROM contents
-                WHERE id = ? AND owner_user_id = ? AND state != 'DELETED'
+                SELECT
+                    contents.*,
+                    processing_jobs.stage AS processing_stage,
+                    processing_jobs.status AS processing_status
+                FROM contents
+                LEFT JOIN processing_jobs ON processing_jobs.content_id = contents.id
+                WHERE contents.id = ?
+                  AND contents.owner_user_id = ?
+                  AND contents.state != 'DELETED'
                 """,
                 (content_id, owner_user_id),
             ).fetchone()
