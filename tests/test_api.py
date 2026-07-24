@@ -68,20 +68,15 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("媒体处理工具不可用", response.json()["detail"]["error"])
         self.assertEqual(response.json()["detail"]["exception"], "MediaToolUnavailable")
 
-    async def test_readiness_reports_missing_device_tokens(self) -> None:
+    async def test_readiness_ignores_missing_device_tokens(self) -> None:
         self.app.state.device_tokens.trigger_token = ""
+        self.app.state.device_tokens.playback_token = ""
 
         response = await self.client.get("/api/v1/ready")
 
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(
-            response.json()["detail"],
-            {
-                "component": "device_tokens",
-                "error": "Trigger and Playback tokens must be configured",
-                "exception": "RuntimeError",
-            },
-        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "ready")
+        self.assertEqual(response.json()["worker"], "disabled")
 
     async def test_openapi_contains_only_new_roles_and_contract(self) -> None:
         schema = (await self.client.get("/openapi.json")).json()

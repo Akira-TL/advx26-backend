@@ -259,8 +259,9 @@ def create_app(
         tags=["operations"],
         summary="Deployment readiness",
         description=(
-            "Checks SQLite, both Object Store roots, FFmpeg, FFprobe, fixed device Tokens, "
-            "and—when enabled—the Node/Puppeteer renderer and worker task."
+            "Checks SQLite, both Object Store roots, FFmpeg, FFprobe, and—when enabled—"
+            "the Node/Puppeteer renderer and worker task. Device Token configuration does "
+            "not block service readiness."
         ),
         operation_id="getReadiness",
     )
@@ -269,7 +270,6 @@ def create_app(
             ("database", database.check),
             ("object_store", object_store.check),
             ("media_tools", media_tools.check),
-            ("device_tokens", device_tokens.check_configured),
         ]
         if uses_default_processor:
             checks.append(("renderer", frame_renderer.check))
