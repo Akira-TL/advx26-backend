@@ -144,6 +144,144 @@ class Database:
         finally:
             connection.close()
 
+    def create_user_token(
+        self,
+        *,
+        user_id: str,
+        token_id: str,
+        token_digest: str,
+        token_hint: str,
+        created_at: str,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO users (id, created_at, updated_at) VALUES (?, ?, ?)",
+                (user_id, created_at, created_at),
+            )
+            connection.execute(
+                """
+                INSERT INTO user_tokens (
+                    id, user_id, token_digest, token_hint, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (token_id, user_id, token_digest, token_hint, created_at),
+            )
+
+    def get_active_user_by_token_digest(self, token_digest: str) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT
+                    users.id AS user_id,
+                    user_tokens.id AS token_id
+                FROM user_tokens
+                JOIN users ON users.id = user_tokens.user_id
+                WHERE user_tokens.token_digest = ?
+                  AND user_tokens.disabled_at IS NULL
+                  AND users.disabled_at IS NULL
+                """,
+                (token_digest,),
+            ).fetchone()
+
+    def touch_user_token(self, token_id: str, used_at: str) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "UPDATE user_tokens SET last_used_at = ? WHERE id = ?",
+                (used_at, token_id),
+            )
+
+    def create_uploaded_content(
+        self,
+        *,
+        content_id: str,
+        owner_user_id: str,
+        display_label: str,
+        visual_seed: int,
+        source_object_key: str,
+        source_filename: str,
+        source_content_type: str,
+        source_byte_length: int,
+        source_sha256: str,
+        job_id: str,
+        media_object_id: str,
+        created_at: str,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO contents (
+                    id, owner_user_id, state, display_label, visual_seed,
+                    source_object_key, source_filename, source_content_type,
+                    source_byte_length, source_sha256, created_at, updated_at
+                ) VALUES (?, ?, 'UPLOADED', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    content_id,
+                    owner_user_id,
+                    display_label,
+                    visual_seed,
+                    source_object_key,
+                    source_filename,
+                    source_content_type,
+                    source_byte_length,
+                    source_sha256,
+                    created_at,
+                    created_at,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO processing_jobs (
+                    id, content_id, status, stage, created_at, updated_at
+                ) VALUES (?, ?, 'QUEUED', 'UPLOADED', ?, ?)
+                """,
+                (job_id, content_id, created_at, created_at),
+            )
+            connection.execute(
+                """
+                INSERT INTO media_objects (
+                    id, content_id, kind, object_key, content_type,
+                    byte_length, sha256, etag, created_at
+                ) VALUES (?, ?, 'SOURCE', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    media_object_id,
+                    content_id,
+                    source_object_key,
+                    source_content_type,
+                    source_byte_length,
+                    source_sha256,
+                    f'sha256-{source_sha256}',
+                    created_at,
+                ),
+            )
+
+    def list_owned_contents(self, owner_user_id: str) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT * FROM contents
+                WHERE owner_user_id = ? AND state != 'DELETED'
+                ORDER BY created_at DESC
+                """,
+                (owner_user_id,),
+            ).fetchall()
+
+    def get_owned_content(
+        self,
+        *,
+        owner_user_id: str,
+        content_id: str,
+    ) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT * FROM contents
+                WHERE id = ? AND owner_user_id = ? AND state != 'DELETED'
+                """,
+                (content_id, owner_user_id),
+            ).fetchone()
+
     def insert_package(self, values: dict[str, Any]) -> None:
         columns = ", ".join(values)
         placeholders = ", ".join("?" for _ in values)

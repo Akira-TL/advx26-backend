@@ -17,10 +17,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
+from .auth import UserPrincipal, UserTokenService
 from .config import Settings
+from .content_service import ContentService, EmptySourceAudio, SourceAudioTooLarge
 from .database import Database
 from .object_store import FileSystemObjectStore
-from .schemas import PackageCreated, PackageList, PackageMetadata, PackageSummary
+from .schemas import (
+    ContentCreated,
+    ContentList,
+    ContentSource,
+    ContentSummary,
+    PackageCreated,
+    PackageList,
+    PackageMetadata,
+    PackageSummary,
+    UserTokenIssued,
+)
 from .storage import FileTooLarge, build_bundle, iter_file, remove_tree, save_upload, write_manifest
 from .validation import InvalidMedia, validate_audio, validate_stl, validate_webm
 
@@ -81,6 +93,24 @@ def parse_range(value: str, size: int) -> tuple[int, int] | None:
     return start, min(end, size - 1)
 
 
+def row_to_content_summary(row: sqlite3.Row) -> ContentSummary:
+    content_id = row["id"]
+    return ContentSummary(
+        content_id=content_id,
+        state=row["state"],
+        display_label=row["display_label"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        status_url=f"/api/v1/contents/{content_id}",
+        source=ContentSource(
+            filename=row["source_filename"],
+            content_type=row["source_content_type"],
+            byte_length=row["source_byte_length"],
+            sha256=row["source_sha256"],
+        ),
+    )
+
+
 def row_to_summary(row: sqlite3.Row) -> PackageSummary:
     return PackageSummary(
         package_id=row["id"],
@@ -103,6 +133,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         staging_root=settings.object_staging_dir,
         chunk_size=settings.chunk_size,
     )
+    user_tokens = UserTokenService(database)
+    content_service = ContentService(
+        database=database,
+        object_store=object_store,
+        max_audio_bytes=settings.max_audio_bytes,
+        chunk_size=settings.chunk_size,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -121,6 +158,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.database = database
     app.state.object_store = object_store
+    app.state.user_tokens = user_tokens
+    app.state.content_service = content_service
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
@@ -138,6 +177,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scheme, _, token = (authorization or "").partition(" ")
         if scheme.lower() != "bearer" or not hmac.compare_digest(token, settings.api_token):
             raise HTTPException(status_code=401, detail="无效或缺少 Bearer Token")
+
+    async def require_user(
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> UserPrincipal:
+        principal = user_tokens.authenticate(authorization)
+        if principal is None:
+            raise HTTPException(
+                status_code=401,
+                detail="无效或缺少用户 Token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return principal
 
     def get_row(package_id: str) -> sqlite3.Row:
         if not PACKAGE_ID_PATTERN.fullmatch(package_id):
@@ -169,6 +220,72 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except (OSError, sqlite3.Error) as error:
             raise HTTPException(status_code=503, detail="存储或数据库不可用") from error
         return {"status": "ready"}
+
+    @app.post(
+        "/api/v1/users/tokens",
+        response_model=UserTokenIssued,
+        status_code=201,
+    )
+    async def issue_user_token(response: Response) -> UserTokenIssued:
+        issued = user_tokens.issue()
+        response.headers["Cache-Control"] = "no-store"
+        return UserTokenIssued(user_id=issued.user_id, token=issued.token)
+
+    @app.post(
+        "/api/v1/contents",
+        response_model=ContentCreated,
+        status_code=201,
+    )
+    async def create_content(
+        response: Response,
+        audio: Annotated[UploadFile, File()],
+        user: UserPrincipal = Depends(require_user),
+    ) -> ContentCreated:
+        try:
+            created = await content_service.upload(
+                owner_user_id=user.user_id,
+                audio=audio,
+            )
+        except SourceAudioTooLarge as error:
+            raise HTTPException(status_code=413, detail=str(error)) from error
+        except EmptySourceAudio as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        response.headers["Cache-Control"] = "no-store"
+        return ContentCreated(
+            content_id=created.content_id,
+            state=created.state,
+            display_label=created.display_label,
+            status_url=f"/api/v1/contents/{created.content_id}",
+        )
+
+    @app.get("/api/v1/contents", response_model=ContentList)
+    async def list_contents(
+        response: Response,
+        user: UserPrincipal = Depends(require_user),
+    ) -> ContentList:
+        rows = database.list_owned_contents(user.user_id)
+        response.headers["Cache-Control"] = "no-store"
+        return ContentList(
+            items=[row_to_content_summary(row) for row in rows],
+            total=len(rows),
+        )
+
+    @app.get("/api/v1/contents/{content_id}", response_model=ContentSummary)
+    async def get_content(
+        content_id: str,
+        response: Response,
+        user: UserPrincipal = Depends(require_user),
+    ) -> ContentSummary:
+        if not PACKAGE_ID_PATTERN.fullmatch(content_id):
+            raise HTTPException(status_code=404, detail="内容不存在")
+        row = database.get_owned_content(
+            owner_user_id=user.user_id,
+            content_id=content_id,
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="内容不存在")
+        response.headers["Cache-Control"] = "no-store"
+        return row_to_content_summary(row)
 
     @app.post(
         "/api/v1/packages",

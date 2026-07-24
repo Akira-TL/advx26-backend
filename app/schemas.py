@@ -6,6 +6,41 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class UserTokenIssued(BaseModel):
+    user_id: str
+    token: str
+    token_type: str = "Bearer"
+
+
+class ContentCreated(BaseModel):
+    content_id: str
+    state: str
+    display_label: str
+    status_url: str
+
+
+class ContentSource(BaseModel):
+    filename: str
+    content_type: str
+    byte_length: int
+    sha256: str
+
+
+class ContentSummary(BaseModel):
+    content_id: str
+    state: str
+    display_label: str
+    created_at: str
+    updated_at: str
+    status_url: str
+    source: ContentSource
+
+
+class ContentList(BaseModel):
+    items: list[ContentSummary]
+    total: int
+
+
 class Creator(BaseModel):
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=256)
