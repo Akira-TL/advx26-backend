@@ -92,6 +92,13 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         response = await self.client.get("/api/v1/ready")
         self.assertEqual(response.status_code, 503)
 
+    async def test_readiness_reports_missing_media_tool(self) -> None:
+        self.app.state.media_tools.ffmpeg_binary = "missing-ffmpeg-for-test"
+
+        response = await self.client.get("/api/v1/ready")
+
+        self.assertEqual(response.status_code, 503)
+
     async def test_upload_query_range_bundle_and_delete(self) -> None:
         response = await self.upload()
         self.assertEqual(response.status_code, 201, response.text)

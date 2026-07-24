@@ -23,6 +23,7 @@ from .config import Settings
 from .content_service import ContentService, EmptySourceAudio, SourceAudioTooLarge
 from .database import Database
 from .job_repository import ProcessingJobRepository
+from .media_tools import MediaToolError, MediaTools
 from .object_store import FileSystemObjectStore
 from .processing_worker import JobProcessor, ProcessingWorker
 from .schemas import (
@@ -143,6 +144,11 @@ def create_app(
         staging_root=settings.object_staging_dir,
         chunk_size=settings.chunk_size,
     )
+    media_tools = MediaTools(
+        ffmpeg_binary=settings.ffmpeg_binary,
+        ffprobe_binary=settings.ffprobe_binary,
+        timeout_seconds=settings.media_command_timeout_seconds,
+    )
     user_tokens = UserTokenService(database)
     content_service = ContentService(
         database=database,
@@ -199,6 +205,7 @@ def create_app(
     app.state.settings = settings
     app.state.database = database
     app.state.object_store = object_store
+    app.state.media_tools = media_tools
     app.state.user_tokens = user_tokens
     app.state.content_service = content_service
     app.state.job_repository = job_repository
@@ -261,10 +268,11 @@ def create_app(
             probe.write_bytes(b"ok")
             probe.unlink()
             object_store.check()
+            media_tools.check()
             worker_task = app.state.worker_task
             if worker_task is not None and worker_task.done():
                 raise RuntimeError("processing worker stopped")
-        except (OSError, sqlite3.Error, RuntimeError) as error:
+        except (OSError, sqlite3.Error, RuntimeError, MediaToolError) as error:
             raise HTTPException(status_code=503, detail="存储或数据库不可用") from error
         return {"status": "ready"}
 

@@ -14,6 +14,17 @@ class Settings:
     object_staging_dir: Path | None = None
     api_token: str = field(default_factory=lambda: os.getenv("BACKEND_API_TOKEN", ""))
     cors_origins: str = field(default_factory=lambda: os.getenv("BACKEND_CORS_ORIGINS", "*"))
+    ffmpeg_binary: str = field(
+        default_factory=lambda: os.getenv("BACKEND_FFMPEG_BINARY", "ffmpeg")
+    )
+    ffprobe_binary: str = field(
+        default_factory=lambda: os.getenv("BACKEND_FFPROBE_BINARY", "ffprobe")
+    )
+    media_command_timeout_seconds: float = field(
+        default_factory=lambda: float(
+            os.getenv("BACKEND_MEDIA_COMMAND_TIMEOUT_SECONDS", "90")
+        )
+    )
     max_audio_bytes: int = 50 * 1024 * 1024
     max_model_bytes: int = 500 * 1024 * 1024
     max_video_bytes: int = 2 * 1024 * 1024 * 1024
@@ -35,6 +46,8 @@ class Settings:
             raise ValueError("worker_poll_seconds must be positive")
         if self.job_lease_seconds <= 0:
             raise ValueError("job_lease_seconds must be positive")
+        if self.media_command_timeout_seconds <= 0:
+            raise ValueError("media_command_timeout_seconds must be positive")
 
     @property
     def packages_dir(self) -> Path:

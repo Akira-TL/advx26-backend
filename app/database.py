@@ -279,6 +279,20 @@ class Database:
                 ),
             )
 
+    def update_content_duration(self, content_id: str, duration_ms: int) -> bool:
+        if duration_ms <= 0:
+            raise ValueError("duration_ms must be positive")
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE contents
+                SET duration_ms = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE id = ? AND state NOT IN ('READY', 'DELETED')
+                """,
+                (duration_ms, content_id),
+            )
+            return cursor.rowcount == 1
+
     def list_owned_contents(self, owner_user_id: str) -> list[sqlite3.Row]:
         with self.connect() as connection:
             return connection.execute(

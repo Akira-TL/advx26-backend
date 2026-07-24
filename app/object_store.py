@@ -47,8 +47,14 @@ class FileSystemObjectStore:
     def put_staging(self, key: str, source: BinaryIO) -> ObjectStat:
         return self._put(self.staging_root, key, source)
 
+    def replace_staging(self, key: str, source: BinaryIO) -> ObjectStat:
+        return self._put(self.staging_root, key, source, replace=True)
+
     def open(self, key: str) -> BinaryIO:
         return self._path(self.objects_root, key).open("rb")
+
+    def open_staging(self, key: str) -> BinaryIO:
+        return self._path(self.staging_root, key).open("rb")
 
     def stat(self, key: str) -> ObjectStat:
         return self._stat(self.objects_root, key)
@@ -107,7 +113,14 @@ class FileSystemObjectStore:
         self._check_root(self.staging_root)
         self._ensure_atomic_promotion_supported()
 
-    def _put(self, root: Path, key: str, source: BinaryIO) -> ObjectStat:
+    def _put(
+        self,
+        root: Path,
+        key: str,
+        source: BinaryIO,
+        *,
+        replace: bool = False,
+    ) -> ObjectStat:
         destination = self._path(root, key)
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary_path: Path | None = None
@@ -123,7 +136,11 @@ class FileSystemObjectStore:
                     temporary.write(chunk)
                 temporary.flush()
                 os.fsync(temporary.fileno())
-            os.link(temporary_path, destination)
+            if replace:
+                os.replace(temporary_path, destination)
+                temporary_path = None
+            else:
+                os.link(temporary_path, destination)
         finally:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
