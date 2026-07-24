@@ -32,6 +32,15 @@ class Settings:
     playback_token: str = field(
         default_factory=lambda: os.getenv("BACKEND_PLAYBACK_TOKEN", "")
     )
+    wallet_auth_domain: str = field(
+        default_factory=lambda: os.getenv(
+            "BACKEND_WALLET_AUTH_DOMAIN",
+            "AdventureX Cloud Media",
+        )
+    )
+    wallet_nonce_ttl_seconds: int = field(
+        default_factory=lambda: int(os.getenv("BACKEND_WALLET_NONCE_TTL_SECONDS", "300"))
+    )
     cors_origins: str = field(default_factory=lambda: os.getenv("BACKEND_CORS_ORIGINS", "*"))
     ffmpeg_binary: str = field(
         default_factory=lambda: os.getenv("BACKEND_FFMPEG_BINARY", "ffmpeg")

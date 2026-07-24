@@ -16,6 +16,8 @@ from app.job_repository import ProcessingJobRepository
 from app.lifecycle import StagingCleanup
 from app.main import create_app
 
+from tests.helpers import register_and_login
+
 
 def utc(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -41,8 +43,8 @@ class ContentLifecycleApiTests(unittest.IsolatedAsyncioTestCase):
             transport=httpx.ASGITransport(app=self.app),
             base_url="http://testserver",
         )
-        first = (await self.client.post("/api/v1/users/tokens")).json()
-        second = (await self.client.post("/api/v1/users/tokens")).json()
+        first = await register_and_login(self.client)
+        second = await register_and_login(self.client)
         self.owner_auth = {"Authorization": f"Bearer {first['token']}"}
         self.other_auth = {"Authorization": f"Bearer {second['token']}"}
         self.owner_id = first["user_id"]

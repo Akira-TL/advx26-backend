@@ -24,6 +24,59 @@ class UserTokenIssued(BaseModel):
     token_type: Literal["Bearer"] = "Bearer"
 
 
+EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+
+
+class EmailRegisterRequest(BaseModel):
+    email: str = Field(pattern=EMAIL_PATTERN, max_length=254, examples=["user@example.com"])
+    password: str = Field(min_length=8, max_length=128)
+
+
+class EmailRegistered(BaseModel):
+    user_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    email: str = Field(pattern=EMAIL_PATTERN)
+
+
+class EmailLoginRequest(BaseModel):
+    email: str = Field(pattern=EMAIL_PATTERN, max_length=254)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class WalletChallengeRequest(BaseModel):
+    address: str = Field(
+        pattern=r"^0x[0-9a-fA-F]{40}$",
+        description="Injective EVM wallet address (0x + 40 hex).",
+        examples=["0x1234567890abcdef1234567890abcdef12345678"],
+    )
+
+
+class WalletChallengeResponse(BaseModel):
+    address: str = Field(pattern=r"^0x[0-9a-fA-F]{40}$")
+    message: str = Field(description="Exact text the wallet must sign via personal_sign.")
+    expires_at: str
+
+
+class WalletVerifyRequest(BaseModel):
+    address: str = Field(pattern=r"^0x[0-9a-fA-F]{40}$")
+    signature: str = Field(
+        pattern=r"^0x[0-9a-fA-F]+$",
+        description="EIP-191 personal_sign signature over the challenge message.",
+    )
+
+
+class WalletTokenIssued(BaseModel):
+    user_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    wallet_address: str = Field(pattern=r"^0x[0-9a-fA-F]{40}$")
+    token: str = Field(description="Opaque User Token. Returned once and not stored in plaintext.")
+    token_type: Literal["Bearer"] = "Bearer"
+
+
+class UserProfile(BaseModel):
+    user_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    wallet_address: str | None = None
+    email: str | None = None
+
+
 class ContentCreated(BaseModel):
     content_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     state: Literal["UPLOADED"]
@@ -58,6 +111,14 @@ class ContentSummary(BaseModel):
 class ContentList(BaseModel):
     items: list[ContentSummary]
     total: int = Field(ge=0)
+
+
+class ContentPage(BaseModel):
+    items: list[ContentSummary]
+    total: int = Field(ge=0)
+    page_number: int = Field(ge=1)
+    units_per_page: int = Field(ge=1)
+    total_pages: int = Field(ge=0)
 
 
 class TriggerPresentation(BaseModel):

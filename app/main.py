@@ -7,11 +7,11 @@ from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Response, Security, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Response, Security, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from .auth import DeviceTokenService, UserPrincipal, UserTokenService
+from .auth import DeviceTokenService, EmailAlreadyRegistered, UserPrincipal, UserTokenService
 from .cloud_processor import CloudMediaProcessor
 from .config import Settings
 from .content_service import ContentService, EmptySourceAudio, SourceAudioTooLarge
@@ -24,14 +24,30 @@ from .media_tools import MediaToolError, MediaTools
 from .object_store import FileSystemObjectStore
 from .openapi_config import error_responses, install_openapi
 from .processing_worker import JobProcessor, ProcessingWorker
+from .wallet_auth import (
+    ChallengeExpired,
+    ChallengeNotFound,
+    InvalidWalletAddress,
+    SignatureMismatch,
+    WalletAuthService,
+)
 from .schemas import (
     ContentCreated,
     ContentList,
+    ContentPage,
     ContentSource,
     ContentSummary,
+    EmailLoginRequest,
+    EmailRegisterRequest,
+    EmailRegistered,
     HealthResponse,
     ReadinessResponse,
+    UserProfile,
     UserTokenIssued,
+    WalletChallengeRequest,
+    WalletChallengeResponse,
+    WalletTokenIssued,
+    WalletVerifyRequest,
 )
 
 
@@ -97,6 +113,12 @@ def create_app(
         timeout_seconds=settings.renderer_timeout_seconds,
     )
     user_tokens = UserTokenService(database)
+    wallet_auth = WalletAuthService(
+        database=database,
+        user_tokens=user_tokens,
+        domain=settings.wallet_auth_domain,
+        nonce_ttl_seconds=settings.wallet_nonce_ttl_seconds,
+    )
     device_tokens = DeviceTokenService(
         trigger_token=settings.trigger_token,
         playback_token=settings.playback_token,
@@ -179,7 +201,7 @@ def create_app(
         ],
         openapi_tags=[
             {"name": "operations", "description": "Health and deployment readiness."},
-            {"name": "users", "description": "Issue long-lived opaque User Tokens."},
+            {"name": "users", "description": "Register, log in (email/password or wallet), and issue User Tokens."},
             {"name": "contents", "description": "Upload and manage user-owned sounds."},
             {"name": "devices", "description": "Trigger resolution and Playback assets."},
         ],
@@ -190,6 +212,7 @@ def create_app(
     app.state.media_tools = media_tools
     app.state.frame_renderer = frame_renderer
     app.state.user_tokens = user_tokens
+    app.state.wallet_auth = wallet_auth
     app.state.device_tokens = device_tokens
     app.state.content_service = content_service
     app.state.job_repository = job_repository
@@ -284,24 +307,120 @@ def create_app(
         )
 
     @app.post(
-        "/api/v1/users/tokens",
+        "/api/v1/users",
+        response_model=EmailRegistered,
+        status_code=201,
+        responses=error_responses(409),
+        tags=["users"],
+        summary="Register with email and password",
+        description="Creates a user identity from an email and password. The password is stored only as a PBKDF2 hash.",
+        operation_id="registerUser",
+    )
+    async def register_user(
+        payload: EmailRegisterRequest,
+        response: Response,
+    ) -> EmailRegistered:
+        try:
+            user_id = user_tokens.register_email(payload.email, payload.password)
+        except EmailAlreadyRegistered as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        response.headers["Cache-Control"] = "no-store"
+        return EmailRegistered(user_id=user_id, email=payload.email)
+
+    @app.post(
+        "/api/v1/sessions",
         response_model=UserTokenIssued,
         status_code=201,
-        responses=error_responses(403),
+        responses=error_responses(401),
         tags=["users"],
-        summary="Issue a User Token",
-        description="Creates a minimal user identity and returns its opaque Token exactly once.",
-        operation_id="issueUserToken",
+        summary="Log in with email and password",
+        description="Verifies the email and password and issues a fresh opaque User Token returned exactly once.",
+        operation_id="loginUser",
     )
-    async def issue_user_token(
+    async def login_user(
+        payload: EmailLoginRequest,
         response: Response,
-        authorization: Annotated[str | None, Header()] = None,
     ) -> UserTokenIssued:
-        if device_tokens.authenticate(authorization) is not None:
-            raise HTTPException(status_code=403, detail="设备 Token 无权签发用户 Token")
-        issued = user_tokens.issue()
+        issued = user_tokens.login_email(payload.email, payload.password)
+        if issued is None:
+            raise HTTPException(
+                status_code=401,
+                detail="邮箱或密码错误",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         response.headers["Cache-Control"] = "no-store"
         return UserTokenIssued(user_id=issued.user_id, token=issued.token)
+
+    @app.post(
+        "/api/v1/auth/wallet/challenge",
+        response_model=WalletChallengeResponse,
+        responses=error_responses(400),
+        tags=["users"],
+        summary="Request a wallet sign-in challenge",
+        description="Returns a nonce-bearing message the Injective wallet must sign via personal_sign.",
+        operation_id="requestWalletChallenge",
+    )
+    async def wallet_challenge(
+        payload: WalletChallengeRequest,
+        response: Response,
+    ) -> WalletChallengeResponse:
+        try:
+            challenge = wallet_auth.build_challenge(payload.address)
+        except InvalidWalletAddress as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        response.headers["Cache-Control"] = "no-store"
+        return WalletChallengeResponse(
+            address=challenge.address,
+            message=challenge.message,
+            expires_at=challenge.expires_at,
+        )
+
+    @app.post(
+        "/api/v1/auth/wallet/verify",
+        response_model=WalletTokenIssued,
+        status_code=201,
+        responses=error_responses(400, 401),
+        tags=["users"],
+        summary="Verify a wallet signature and issue a token",
+        description="Recovers the signer from the EIP-191 signature and issues an opaque User Token bound to the wallet account.",
+        operation_id="verifyWalletSignature",
+    )
+    async def wallet_verify(
+        payload: WalletVerifyRequest,
+        response: Response,
+    ) -> WalletTokenIssued:
+        try:
+            login = wallet_auth.verify(payload.address, payload.signature)
+        except InvalidWalletAddress as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except (ChallengeNotFound, ChallengeExpired, SignatureMismatch) as error:
+            raise HTTPException(status_code=401, detail=str(error)) from error
+        response.headers["Cache-Control"] = "no-store"
+        return WalletTokenIssued(
+            user_id=login.user_id,
+            wallet_address=login.wallet_address,
+            token=login.token,
+        )
+
+    @app.get(
+        "/api/v1/users/me",
+        response_model=UserProfile,
+        responses=error_responses(401),
+        tags=["users"],
+        summary="Inspect the authenticated account",
+        operation_id="getCurrentUser",
+    )
+    async def get_current_user(
+        response: Response,
+        user: UserPrincipal = Depends(require_user),
+    ) -> UserProfile:
+        row = database.get_user(user.user_id)
+        response.headers["Cache-Control"] = "no-store"
+        return UserProfile(
+            user_id=user.user_id,
+            wallet_address=row["wallet_address"] if row is not None else None,
+            email=row["email"] if row is not None else None,
+        )
 
     @app.post(
         "/api/v1/contents",
@@ -352,6 +471,37 @@ def create_app(
         return ContentList(
             items=[row_to_content_summary(row) for row in rows],
             total=len(rows),
+        )
+
+    @app.get(
+        "/api/v1/contents/page",
+        response_model=ContentPage,
+        responses=error_responses(401),
+        tags=["contents"],
+        summary="List owned content by page",
+        operation_id="listOwnedContentsByPage",
+    )
+    async def list_contents_page(
+        response: Response,
+        user: UserPrincipal = Depends(require_user),
+        page_number: int = Query(ge=1, description="1-based page index"),
+        units_per_page: int = Query(ge=1, le=200, description="Items per page"),
+    ) -> ContentPage:
+        total = database.count_owned_contents(user.user_id)
+        offset = (page_number - 1) * units_per_page
+        rows = database.list_owned_contents_page(
+            user.user_id,
+            limit=units_per_page,
+            offset=offset,
+        )
+        total_pages = (total + units_per_page - 1) // units_per_page
+        response.headers["Cache-Control"] = "no-store"
+        return ContentPage(
+            items=[row_to_content_summary(row) for row in rows],
+            total=total,
+            page_number=page_number,
+            units_per_page=units_per_page,
+            total_pages=total_pages,
         )
 
     @app.get(

@@ -19,6 +19,8 @@ from app.processing_worker import (
     TransientProcessingError,
 )
 
+from tests.helpers import register_and_login
+
 
 def utc(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -237,7 +239,7 @@ class ProcessingWorkerApiTests(unittest.IsolatedAsyncioTestCase):
         self.temporary.cleanup()
 
     async def test_lifespan_worker_reports_stage_without_blocking_health(self) -> None:
-        issued = (await self.client.post("/api/v1/users/tokens")).json()
+        issued = await register_and_login(self.client)
         auth = {"Authorization": f"Bearer {issued['token']}"}
         created = await self.client.post(
             "/api/v1/contents",

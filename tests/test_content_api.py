@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 import httpx
@@ -37,7 +38,17 @@ class ContentApiTests(unittest.IsolatedAsyncioTestCase):
         self.temporary.cleanup()
 
     async def issue_user(self) -> dict[str, str]:
-        response = await self.client.post("/api/v1/users/tokens")
+        email = f"user-{uuid.uuid4().hex}@example.com"
+        password = "password12345"
+        register = await self.client.post(
+            "/api/v1/users",
+            json={"email": email, "password": password},
+        )
+        self.assertEqual(register.status_code, 201, register.text)
+        response = await self.client.post(
+            "/api/v1/sessions",
+            json={"email": email, "password": password},
+        )
         self.assertEqual(response.status_code, 201, response.text)
         self.assertEqual(response.headers["cache-control"], "no-store")
         return response.json()
@@ -89,6 +100,50 @@ class ContentApiTests(unittest.IsolatedAsyncioTestCase):
             {response.json()["detail"] for response in responses},
             {"无效或缺少用户 Token"},
         )
+
+    async def test_duplicate_email_registration_is_rejected(self) -> None:
+        payload = {"email": "dupe@example.com", "password": "password12345"}
+        first = await self.client.post("/api/v1/users", json=payload)
+        second = await self.client.post("/api/v1/users", json=payload)
+
+        self.assertEqual(first.status_code, 201, first.text)
+        self.assertEqual(second.status_code, 409, second.text)
+
+    async def test_login_rejects_wrong_password_and_unknown_email(self) -> None:
+        await self.client.post(
+            "/api/v1/users",
+            json={"email": "known@example.com", "password": "password12345"},
+        )
+
+        wrong = await self.client.post(
+            "/api/v1/sessions",
+            json={"email": "known@example.com", "password": "wrong-password"},
+        )
+        unknown = await self.client.post(
+            "/api/v1/sessions",
+            json={"email": "nobody@example.com", "password": "password12345"},
+        )
+
+        self.assertEqual(wrong.status_code, 401, wrong.text)
+        self.assertEqual(unknown.status_code, 401, unknown.text)
+
+    async def test_password_is_stored_hashed_not_plaintext(self) -> None:
+        password = "password12345"
+        register = await self.client.post(
+            "/api/v1/users",
+            json={"email": "hash@example.com", "password": password},
+        )
+        user_id = register.json()["user_id"]
+
+        with self.app.state.database.connect() as connection:
+            row = connection.execute(
+                "SELECT password_hash FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+
+        self.assertIsNotNone(row["password_hash"])
+        self.assertNotIn(password, row["password_hash"])
+        self.assertTrue(row["password_hash"].startswith("pbkdf2_sha256$"))
 
     async def test_upload_persists_exact_source_and_creates_owned_job(self) -> None:
         issued = await self.issue_user()

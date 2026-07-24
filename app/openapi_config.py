@@ -125,7 +125,7 @@ def install_openapi(app: FastAPI, *, public_base_url: str) -> None:
             {},
         )
         role_metadata = {
-            "UserToken": ("user", "Issued by POST /api/v1/users/tokens."),
+            "UserToken": ("user", "Issued by POST /api/v1/sessions after email/password login."),
             "TriggerToken": ("trigger", "Fixed Token provisioned to trigger-01."),
             "PlaybackToken": ("playback", "Fixed Token provisioned to playback-01."),
         }

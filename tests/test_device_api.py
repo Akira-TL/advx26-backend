@@ -16,6 +16,8 @@ from app.job_repository import ProcessingJobRepository
 from app.main import create_app
 from app.package_publisher import ReadyPackagePublisher
 
+from tests.helpers import register_and_login
+
 
 class Reporter:
     async def stage(self, name: str) -> None:
@@ -42,7 +44,7 @@ class DeviceApiTests(unittest.IsolatedAsyncioTestCase):
             transport=httpx.ASGITransport(app=self.app),
             base_url="http://testserver",
         )
-        issued = (await self.client.post("/api/v1/users/tokens")).json()
+        issued = await register_and_login(self.client)
         self.user_id = issued["user_id"]
         self.user_auth = {"Authorization": f"Bearer {issued['token']}"}
         self.trigger_auth = {"Authorization": "Bearer trigger-fixed-token"}
@@ -198,16 +200,11 @@ class DeviceApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.get(asset_url, headers=self.trigger_auth)).status_code, 403)
         self.assertEqual((await self.client.get(asset_url, headers=self.user_auth)).status_code, 401)
 
-        device_issue = await self.client.post(
-            "/api/v1/users/tokens",
-            headers=self.trigger_auth,
-        )
         device_upload = await self.client.post(
             "/api/v1/contents",
             headers=self.playback_auth,
             files={"audio": ("voice.wav", b"device", "audio/wav")},
         )
-        self.assertEqual(device_issue.status_code, 403)
         self.assertEqual(device_upload.status_code, 401)
 
     async def test_playback_get_head_range_and_if_range_contract(self) -> None:

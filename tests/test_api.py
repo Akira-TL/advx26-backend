@@ -67,7 +67,8 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
         paths = schema["paths"]
         schemes = schema["components"]["securitySchemes"]
 
-        self.assertIn("/api/v1/users/tokens", paths)
+        self.assertIn("/api/v1/users", paths)
+        self.assertIn("/api/v1/sessions", paths)
         self.assertIn("/api/v1/contents", paths)
         self.assertIn("/api/v1/contents/{content_id}/retry", paths)
         self.assertIn("/c/{content_id}", paths)

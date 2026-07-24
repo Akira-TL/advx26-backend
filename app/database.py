@@ -10,9 +10,24 @@ from typing import Any
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
+    wallet_address TEXT,
+    email TEXT,
+    password_hash TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     disabled_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_wallet_address
+    ON users(wallet_address) WHERE wallet_address IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
+    ON users(email) WHERE email IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS auth_nonces (
+    address TEXT PRIMARY KEY,
+    nonce TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS user_tokens (
@@ -104,6 +119,9 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            self._ensure_column(connection, "users", "wallet_address", "TEXT")
+            self._ensure_column(connection, "users", "email", "TEXT")
+            self._ensure_column(connection, "users", "password_hash", "TEXT")
             self._ensure_column(connection, "contents", "error_message", "TEXT")
             self._ensure_column(connection, "processing_jobs", "error_code", "TEXT")
             self._ensure_column(connection, "processing_jobs", "error_message", "TEXT")
@@ -190,6 +208,139 @@ class Database:
                 "UPDATE user_tokens SET last_used_at = ? WHERE id = ?",
                 (used_at, token_id),
             )
+
+    def create_user_token_for_user(
+        self,
+        *,
+        user_id: str,
+        token_id: str,
+        token_digest: str,
+        token_hint: str,
+        created_at: str,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO user_tokens (
+                    id, user_id, token_digest, token_hint, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (token_id, user_id, token_digest, token_hint, created_at),
+            )
+
+    def get_user_by_wallet(self, wallet_address: str) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT id AS user_id, wallet_address
+                FROM users
+                WHERE wallet_address = ? AND disabled_at IS NULL
+                """,
+                (wallet_address,),
+            ).fetchone()
+
+    def get_user(self, user_id: str) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT id AS user_id, wallet_address, email
+                FROM users
+                WHERE id = ? AND disabled_at IS NULL
+                """,
+                (user_id,),
+            ).fetchone()
+
+    def create_email_user(
+        self,
+        *,
+        user_id: str,
+        email: str,
+        password_hash: str,
+        created_at: str,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO users (id, email, password_hash, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (user_id, email, password_hash, created_at, created_at),
+            )
+
+    def get_user_by_email(self, email: str) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT id AS user_id, email, password_hash
+                FROM users
+                WHERE email = ? AND disabled_at IS NULL
+                """,
+                (email,),
+            ).fetchone()
+
+    def create_wallet_user(
+        self,
+        *,
+        user_id: str,
+        wallet_address: str,
+        token_id: str,
+        token_digest: str,
+        token_hint: str,
+        created_at: str,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO users (id, wallet_address, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (user_id, wallet_address, created_at, created_at),
+            )
+            connection.execute(
+                """
+                INSERT INTO user_tokens (
+                    id, user_id, token_digest, token_hint, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (token_id, user_id, token_digest, token_hint, created_at),
+            )
+
+    def upsert_auth_nonce(
+        self,
+        *,
+        address: str,
+        nonce: str,
+        message: str,
+        created_at: str,
+        expires_at: str,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO auth_nonces (address, nonce, message, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(address) DO UPDATE SET
+                    nonce = excluded.nonce,
+                    message = excluded.message,
+                    created_at = excluded.created_at,
+                    expires_at = excluded.expires_at
+                """,
+                (address, nonce, message, created_at, expires_at),
+            )
+
+    def consume_auth_nonce(self, address: str) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT address, nonce, message, expires_at FROM auth_nonces WHERE address = ?",
+                (address,),
+            ).fetchone()
+            if row is not None:
+                connection.execute(
+                    "DELETE FROM auth_nonces WHERE address = ?",
+                    (address,),
+                )
+            return row
 
     def create_uploaded_content(
         self,
@@ -518,6 +669,37 @@ class Database:
                 ORDER BY contents.created_at DESC
                 """,
                 (owner_user_id,),
+            ).fetchall()
+
+    def count_owned_contents(self, owner_user_id: str) -> int:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) AS total FROM contents WHERE owner_user_id = ?",
+                (owner_user_id,),
+            ).fetchone()
+            return int(row["total"])
+
+    def list_owned_contents_page(
+        self,
+        owner_user_id: str,
+        *,
+        limit: int,
+        offset: int,
+    ) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT
+                    contents.*,
+                    processing_jobs.stage AS processing_stage,
+                    processing_jobs.status AS processing_status
+                FROM contents
+                LEFT JOIN processing_jobs ON processing_jobs.content_id = contents.id
+                WHERE contents.owner_user_id = ?
+                ORDER BY contents.created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (owner_user_id, limit, offset),
             ).fetchall()
 
     def get_owned_content(
