@@ -45,7 +45,6 @@ pip install -r requirements.txt
 
 export BACKEND_TRIGGER_TOKEN='replace-trigger-secret'
 export BACKEND_PLAYBACK_TOKEN='replace-playback-secret'
-export BACKEND_WORKER_ENABLED=1
 export BACKEND_RENDERER_PROJECT_DIR="$PWD/../Sound-Visualization-Kaleidoscope-effect/particle-field"
 
 python run.py
@@ -58,10 +57,10 @@ python run.py
 | 变量 | 默认值 | 作用 |
 |---|---:|---|
 | `BACKEND_PUBLIC_BASE_URL` | `http://127.0.0.1:9000` | OpenAPI `servers`、外部文档和部署公开基地址 |
-| `BACKEND_TRIGGER_TOKEN` | 空 | 固定 Trigger Bearer Token；readiness 要求已配置 |
+| `BACKEND_TRIGGER_TOKEN` | 空 | 固定 Trigger Bearer Token；未配置时对应设备接口不可用 |
 | `BACKEND_PLAYBACK_TOKEN` | 空 | 固定 Playback Bearer Token；必须与 Trigger Token 不同 |
 | `BACKEND_CORS_ORIGINS` | `*` | 逗号分隔的允许来源 |
-| `BACKEND_WORKER_ENABLED` | `0` | `1` 时启动完整媒体 worker |
+| `BACKEND_WORKER_ENABLED` | `1` | 默认启动完整媒体 worker；仅测试或维护时设为 `0` |
 | `BACKEND_RENDERER_PROJECT_DIR` | 相邻可视化仓 | 已执行 `npm ci && npm run build` 的 renderer 目录 |
 | `BACKEND_NODE_BINARY` | `node` | Node 可执行文件 |
 | `BACKEND_FFMPEG_BINARY` | `ffmpeg` | FFmpeg 可执行文件 |

@@ -56,7 +56,7 @@ class Settings:
     )
     chunk_size: int = 1024 * 1024
     worker_enabled: bool = field(
-        default_factory=lambda: _env_bool("BACKEND_WORKER_ENABLED", False)
+        default_factory=lambda: _env_bool("BACKEND_WORKER_ENABLED", True)
     )
     worker_poll_seconds: float = field(
         default_factory=lambda: float(os.getenv("BACKEND_WORKER_POLL_SECONDS", "1"))

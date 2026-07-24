@@ -11,6 +11,11 @@ from app.config import Settings
 from app.main import create_app
 
 
+class SettingsDefaultsTests(unittest.TestCase):
+    def test_worker_is_enabled_by_default(self) -> None:
+        self.assertTrue(Settings().worker_enabled)
+
+
 class ApiTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -21,6 +26,7 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             database_path=root / "storage" / "test.db",
             object_store_dir=root / "storage" / "objects",
             object_staging_dir=root / "storage" / "object-staging",
+            worker_enabled=False,
             trigger_token="trigger-test-token",
             playback_token="playback-test-token",
         )

@@ -25,6 +25,7 @@ class DebugMediaTests(unittest.IsolatedAsyncioTestCase):
             object_store_dir=root / "storage" / "objects",
             object_staging_dir=root / "storage" / "object-staging",
             debug_media_dir=media_dir,
+            worker_enabled=False,
         )
         self.app = create_app(settings)
         self.lifespan = self.app.router.lifespan_context(self.app)

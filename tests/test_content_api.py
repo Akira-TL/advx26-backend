@@ -21,6 +21,7 @@ class ContentApiTests(unittest.IsolatedAsyncioTestCase):
             database_path=root / "storage" / "cloud-media.db",
             object_store_dir=root / "storage" / "objects",
             object_staging_dir=root / "storage" / "object-staging",
+            worker_enabled=False,
             max_audio_bytes=1024,
         )
         self.app = create_app(self.settings)

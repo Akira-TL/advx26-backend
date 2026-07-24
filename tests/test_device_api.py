@@ -32,6 +32,7 @@ class DeviceApiTests(unittest.IsolatedAsyncioTestCase):
             database_path=root / "storage" / "device.db",
             object_store_dir=root / "storage" / "objects",
             object_staging_dir=root / "storage" / "object-staging",
+            worker_enabled=False,
             trigger_token="trigger-fixed-token",
             playback_token="playback-fixed-token",
         )

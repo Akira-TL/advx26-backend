@@ -31,6 +31,7 @@ class ContentLifecycleApiTests(unittest.IsolatedAsyncioTestCase):
             database_path=root / "storage" / "lifecycle.db",
             object_store_dir=root / "storage" / "objects",
             object_staging_dir=root / "storage" / "object-staging",
+            worker_enabled=False,
             trigger_token="trigger-lifecycle",
             playback_token="playback-lifecycle",
         )
