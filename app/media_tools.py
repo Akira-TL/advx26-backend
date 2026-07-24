@@ -200,6 +200,8 @@ class MediaTools:
                 "libx264",
                 "-preset",
                 "veryfast",
+                "-crf",
+                "25.6",
                 "-profile:v",
                 "baseline",
                 "-level:v",

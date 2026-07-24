@@ -51,6 +51,8 @@ class VideoEncoderCommandTests(unittest.TestCase):
         self.assertIn("12", args)
         self.assertIn("baseline", args)
         self.assertIn("yuv420p", args)
+        crf_index = args.index("-crf")
+        self.assertEqual(args[crf_index + 1], "25.6")
         self.assertIn("+faststart", args)
         self.assertIn("open-gop=0:force-cfr=1:repeat-headers=1", args)
         self.assertNotIn("webm", " ".join(args).lower())
