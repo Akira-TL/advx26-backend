@@ -22,12 +22,15 @@ from .job_repository import ProcessingJobRepository
 from .lifecycle import StagingCleanup
 from .media_tools import MediaToolError, MediaTools
 from .object_store import FileSystemObjectStore
+from .openapi_config import error_responses, install_openapi
 from .processing_worker import JobProcessor, ProcessingWorker
 from .schemas import (
     ContentCreated,
     ContentList,
     ContentSource,
     ContentSummary,
+    HealthResponse,
+    ReadinessResponse,
     UserTokenIssued,
 )
 
@@ -161,12 +164,19 @@ def create_app(
 
     app = FastAPI(
         title="AdventureX Cloud Media Service",
+        summary="User-owned audio ingestion and deterministic NFC media playback.",
         version="2.0.0",
         description=(
             "Authenticate users and fixed devices, normalize uploaded audio, render the "
             "Sound Visualization, publish immutable H.264/MP3 media, and serve NFC playback."
         ),
         lifespan=lifespan,
+        servers=[
+            {
+                "url": settings.public_base_url,
+                "description": "Configured public Cloud Media Service endpoint.",
+            }
+        ],
         openapi_tags=[
             {"name": "operations", "description": "Health and deployment readiness."},
             {"name": "users", "description": "Issue long-lived opaque User Tokens."},
@@ -233,23 +243,28 @@ def create_app(
 
     @app.get(
         "/api/v1/health",
+        response_model=HealthResponse,
         tags=["operations"],
         summary="Process liveness",
         description="Returns 200 when the HTTP process can answer requests; it does not prove dependencies are ready.",
+        operation_id="getHealth",
     )
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+    async def health() -> HealthResponse:
+        return HealthResponse()
 
     @app.get(
         "/api/v1/ready",
+        response_model=ReadinessResponse,
+        responses=error_responses(503),
         tags=["operations"],
         summary="Deployment readiness",
         description=(
             "Checks SQLite, both Object Store roots, FFmpeg, FFprobe, fixed device Tokens, "
             "and—when enabled—the Node/Puppeteer renderer and worker task."
         ),
+        operation_id="getReadiness",
     )
-    async def ready() -> dict[str, str]:
+    async def ready() -> ReadinessResponse:
         try:
             database.check()
             object_store.check()
@@ -264,18 +279,19 @@ def create_app(
                 raise RuntimeError("processing worker stopped")
         except (OSError, sqlite3.Error, RuntimeError, MediaToolError) as error:
             raise HTTPException(status_code=503, detail="服务依赖尚未就绪") from error
-        return {
-            "status": "ready",
-            "worker": "running" if processing_worker is not None else "disabled",
-        }
+        return ReadinessResponse(
+            worker="running" if processing_worker is not None else "disabled"
+        )
 
     @app.post(
         "/api/v1/users/tokens",
         response_model=UserTokenIssued,
         status_code=201,
+        responses=error_responses(403),
         tags=["users"],
         summary="Issue a User Token",
         description="Creates a minimal user identity and returns its opaque Token exactly once.",
+        operation_id="issueUserToken",
     )
     async def issue_user_token(
         response: Response,
@@ -291,9 +307,11 @@ def create_app(
         "/api/v1/contents",
         response_model=ContentCreated,
         status_code=201,
+        responses=error_responses(400, 401, 413),
         tags=["contents"],
         summary="Upload source audio",
         description="Stores the exact original audio and queues deterministic cloud media processing.",
+        operation_id="uploadContent",
     )
     async def create_content(
         response: Response,
@@ -320,8 +338,10 @@ def create_app(
     @app.get(
         "/api/v1/contents",
         response_model=ContentList,
+        responses=error_responses(401),
         tags=["contents"],
         summary="List owned content",
+        operation_id="listOwnedContents",
     )
     async def list_contents(
         response: Response,
@@ -337,8 +357,10 @@ def create_app(
     @app.get(
         "/api/v1/contents/{content_id}",
         response_model=ContentSummary,
+        responses=error_responses(401, 404),
         tags=["contents"],
         summary="Inspect owned content",
+        operation_id="getOwnedContent",
     )
     async def get_content(
         content_id: str,
@@ -359,8 +381,10 @@ def create_app(
         "/api/v1/contents/{content_id}/retry",
         response_model=ContentSummary,
         status_code=202,
+        responses=error_responses(401, 404, 409),
         tags=["contents"],
         summary="Retry eligible failed content",
+        operation_id="retryOwnedContent",
     )
     async def retry_content(
         content_id: str,
@@ -391,9 +415,11 @@ def create_app(
     @app.delete(
         "/api/v1/contents/{content_id}",
         status_code=204,
+        responses=error_responses(401, 404),
         tags=["contents"],
         summary="Revoke owned content",
         description="Immediately revokes device access; generated objects are cleaned later.",
+        operation_id="deleteOwnedContent",
     )
     async def delete_content(
         content_id: str,
@@ -409,6 +435,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="内容不存在")
         return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
+    install_openapi(app, public_base_url=settings.public_base_url)
     return app
 
 

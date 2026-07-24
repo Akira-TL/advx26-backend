@@ -20,6 +20,12 @@ class Settings:
     object_store_dir: Path | None = None
     object_staging_dir: Path | None = None
     renderer_project_dir: Path | None = None
+    public_base_url: str = field(
+        default_factory=lambda: os.getenv(
+            "BACKEND_PUBLIC_BASE_URL",
+            "http://127.0.0.1:9000",
+        )
+    )
     trigger_token: str = field(
         default_factory=lambda: os.getenv("BACKEND_TRIGGER_TOKEN", "")
     )
@@ -89,6 +95,9 @@ class Settings:
             / "Sound-Visualization-Kaleidoscope-effect"
             / "particle-field"
         ).resolve()
+        self.public_base_url = self.public_base_url.strip().rstrip("/")
+        if not self.public_base_url.startswith(("http://", "https://")):
+            raise ValueError("public_base_url must start with http:// or https://")
         positive_values = {
             "media_command_timeout_seconds": self.media_command_timeout_seconds,
             "renderer_timeout_seconds": self.renderer_timeout_seconds,

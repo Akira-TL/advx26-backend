@@ -51,12 +51,13 @@ export BACKEND_RENDERER_PROJECT_DIR="$PWD/../Sound-Visualization-Kaleidoscope-ef
 python run.py
 ```
 
-交互文档位于 `/docs`，机器可读 OpenAPI 位于 `/openapi.json`。
+交互文档位于 `/docs`，运行时 JSON 位于 `/openapi.json`，仓库内静态规范位于 `openapi/openapi.yaml`。
 
 ## 配置
 
 | 变量 | 默认值 | 作用 |
 |---|---:|---|
+| `BACKEND_PUBLIC_BASE_URL` | `http://127.0.0.1:9000` | OpenAPI `servers`、外部文档和部署公开基地址 |
 | `BACKEND_TRIGGER_TOKEN` | 空 | 固定 Trigger Bearer Token；readiness 要求已配置 |
 | `BACKEND_PLAYBACK_TOKEN` | 空 | 固定 Playback Bearer Token；必须与 Trigger Token 不同 |
 | `BACKEND_CORS_ORIGINS` | `*` | 逗号分隔的允许来源 |
@@ -90,8 +91,8 @@ User Token 只在签发时返回一次，SQLite 仅保存摘要。Trigger/Playba
 ## 健康与就绪
 
 ```bash
-curl http://127.0.0.1:8000/api/v1/health
-curl http://127.0.0.1:8000/api/v1/ready
+curl http://127.0.0.1:9000/api/v1/health
+curl http://127.0.0.1:9000/api/v1/ready
 ```
 
 - `/health` 只表示 HTTP 进程存活。
@@ -102,7 +103,7 @@ curl http://127.0.0.1:8000/api/v1/ready
 ### 1. 签发 User Token
 
 ```bash
-curl -sS -X POST http://127.0.0.1:8000/api/v1/users/tokens
+curl -sS -X POST http://127.0.0.1:9000/api/v1/users/tokens
 ```
 
 响应中的 `token` 需要由客户端安全保存：
@@ -114,7 +115,7 @@ export USER_TOKEN='usr_example_only'
 ### 2. 上传音频
 
 ```bash
-curl -sS -X POST http://127.0.0.1:8000/api/v1/contents \
+curl -sS -X POST http://127.0.0.1:9000/api/v1/contents \
   -H "Authorization: Bearer $USER_TOKEN" \
   -F 'audio=@./voice.m4a'
 ```
@@ -127,7 +128,7 @@ curl -sS -X POST http://127.0.0.1:8000/api/v1/contents \
 export CONTENT_ID='0123456789abcdef0123456789abcdef'
 curl -sS \
   -H "Authorization: Bearer $USER_TOKEN" \
-  "http://127.0.0.1:8000/api/v1/contents/$CONTENT_ID"
+  "http://127.0.0.1:9000/api/v1/contents/$CONTENT_ID"
 ```
 
 状态可能为 `UPLOADED`、`PROCESSING`、`READY`、`FAILED`、`DELETED`。可重试失败：
@@ -135,7 +136,7 @@ curl -sS \
 ```bash
 curl -sS -X POST \
   -H "Authorization: Bearer $USER_TOKEN" \
-  "http://127.0.0.1:8000/api/v1/contents/$CONTENT_ID/retry"
+  "http://127.0.0.1:9000/api/v1/contents/$CONTENT_ID/retry"
 ```
 
 撤销内容：
@@ -143,7 +144,7 @@ curl -sS -X POST \
 ```bash
 curl -i -X DELETE \
   -H "Authorization: Bearer $USER_TOKEN" \
-  "http://127.0.0.1:8000/api/v1/contents/$CONTENT_ID"
+  "http://127.0.0.1:9000/api/v1/contents/$CONTENT_ID"
 ```
 
 ### 4. Trigger 解析 NFC 内容
@@ -159,7 +160,7 @@ Trigger 请求：
 ```bash
 curl -sS \
   -H 'Authorization: Bearer replace-trigger-secret' \
-  "http://127.0.0.1:8000/c/$CONTENT_ID"
+  "http://127.0.0.1:9000/c/$CONTENT_ID"
 ```
 
 返回完整 Compact Content，包括绝对 video/audio/index URL，不包含用户身份或原始音频信息。
@@ -170,7 +171,7 @@ curl -sS \
 curl -i \
   -H 'Authorization: Bearer replace-playback-secret' \
   -H 'Range: bytes=0-4095' \
-  "http://127.0.0.1:8000/api/v1/contents/$CONTENT_ID/assets/video"
+  "http://127.0.0.1:9000/api/v1/contents/$CONTENT_ID/assets/video"
 ```
 
 媒体端点支持 `GET`、`HEAD`、单个 prefix/open/suffix Range 和 `If-Range`。响应使用强 ETag、精确 Content-Length、`Vary: Authorization` 与 private immutable cache。
@@ -183,7 +184,7 @@ Dockerfile 使用仓库根目录作为构建上下文，以同时构建后端和
 cd /home/akira/Projects/advx26
 docker build -f backend/Dockerfile -t advx26-cloud-media .
 
-docker run --rm -p 8000:8000 \
+docker run --rm -p 9000:9000 \
   -e BACKEND_TRIGGER_TOKEN='replace-trigger-secret' \
   -e BACKEND_PLAYBACK_TOKEN='replace-playback-secret' \
   -v "$PWD/.scratch/cloud-media-storage:/app/storage" \
@@ -192,10 +193,32 @@ docker run --rm -p 8000:8000 \
 
 镜像包含 FFmpeg/FFprobe、Node、Puppeteer、Chromium 依赖和已构建 renderer。不要把真实 Token 写入镜像层或命令历史；正式部署使用 secret manager 或受限环境文件。
 
+## OpenAPI 导出
+
+运行时路由、Pydantic 模型和 `app/openapi_config.py` 是规范源。重新生成提交的 OpenAPI 3.1 YAML：
+
+```bash
+.venv/bin/python scripts/export_openapi.py
+```
+
+生成部署地址版本：
+
+```bash
+.venv/bin/python scripts/export_openapi.py \
+  --server-url https://media.example.com
+```
+
+检查静态规范是否与代码一致：
+
+```bash
+.venv/bin/python scripts/export_openapi.py --check
+```
+
 ## 检查
 
 ```bash
-.venv/bin/python -m compileall -q app tests
+.venv/bin/python -m compileall -q app tests scripts
+.venv/bin/python scripts/export_openapi.py --check
 .venv/bin/python -m unittest discover -s tests -v
 ```
 

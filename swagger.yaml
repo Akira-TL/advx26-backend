@@ -1,5 +1,7 @@
-# Static Swagger output was retired.
-# Start the service and use:
-#   http://127.0.0.1:8000/docs
-#   http://127.0.0.1:8000/openapi.json
-# The generated OpenAPI document is the canonical contract.
+# Deprecated compatibility pointer.
+#
+# The canonical committed OpenAPI 3.1 document is:
+#   openapi/openapi.yaml
+#
+# Runtime JSON remains available from a running service at:
+#   /openapi.json

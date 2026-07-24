@@ -18,6 +18,8 @@ from .auth import (
 )
 from .database import Database
 from .object_store import FileSystemObjectStore
+from .openapi_config import error_responses, playback_asset_responses
+from .schemas import CompactContent
 
 
 CONTENT_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -75,8 +77,11 @@ def create_device_router(
 
     @router.get(
         "/c/{content_id}",
+        response_model=CompactContent,
+        responses=error_responses(401, 403, 404, 503),
         summary="Resolve NFC content for Trigger",
         description="Return the complete READY Compact Content document for the fixed Trigger board.",
+        operation_id="resolveTriggerContent",
     )
     async def resolve_compact_content(
         content_id: str,
@@ -120,15 +125,19 @@ def create_device_router(
 
     @router.head(
         "/api/v1/contents/{content_id}/assets/{asset_kind}",
+        response_class=Response,
+        responses=playback_asset_responses(include_body=False),
         summary="Inspect immutable playback asset",
         description="Playback-only HEAD response with Range and If-Range support.",
-        operation_id="head_playback_asset",
+        operation_id="headPlaybackAsset",
     )
     @router.get(
         "/api/v1/contents/{content_id}/assets/{asset_kind}",
+        response_class=Response,
+        responses=playback_asset_responses(),
         summary="Download immutable playback asset",
         description="Playback-only GET response with Range and If-Range support.",
-        operation_id="get_playback_asset",
+        operation_id="getPlaybackAsset",
     )
     async def get_playback_asset(
         content_id: str,

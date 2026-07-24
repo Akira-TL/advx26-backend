@@ -46,6 +46,6 @@ COPY backend/run.py ./run.py
 COPY --from=renderer /renderer ./renderer
 COPY --from=renderer /root/.cache/puppeteer /root/.cache/puppeteer
 
-EXPOSE 8000
+EXPOSE 9000
 VOLUME ["/app/storage"]
 CMD ["python", "run.py"]
