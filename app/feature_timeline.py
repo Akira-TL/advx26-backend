@@ -146,7 +146,12 @@ def _extract_features(samples: tuple[float, ...], duration_ms: int) -> list[dict
         "spectralFlux": 0.0,
         "transient": 0.0,
         "centroid": 0.35,
+        "pitchHz": 220.0,
+        "pitchNormalized": 0.45,
+        "pitchConfidence": 0.0,
     }
+    pitch_history: list[float] = []
+    last_stable_pitch_hz = 220.0
     noise_floor_db = -58.0
     flux_floor = 0.015
     last_onset_ms = -1_000_000.0
@@ -200,6 +205,25 @@ def _extract_features(samples: tuple[float, ...], duration_ms: int) -> list[dict
         )
         centroid_raw = _clamp01((centroid_hz - 200) / 6000)
 
+        pitch_hz_raw, pitch_confidence_raw = _estimate_spectral_pitch(
+            spectrum,
+            bin_hz,
+        )
+        if has_signal and pitch_confidence_raw > 0.65:
+            shape_pitch_hz = pitch_hz_raw
+            last_stable_pitch_hz = pitch_hz_raw
+        elif has_signal:
+            shape_pitch_hz = min(1000.0, max(80.0, centroid_hz * 0.22))
+            pitch_confidence_raw = max(0.2, pitch_confidence_raw * 0.6)
+        else:
+            shape_pitch_hz = last_stable_pitch_hz
+            pitch_confidence_raw = 0.0
+        pitch_history.append(shape_pitch_hz)
+        if len(pitch_history) > 5:
+            pitch_history.pop(0)
+        median_pitch_hz = sorted(pitch_history)[len(pitch_history) // 2]
+        pitch_normalized_raw = _normalize_pitch(median_pitch_hz)
+
         positive_change = sum(
             max(0.0, spectrum[index] - previous_spectrum[index])
             for index in range(1, len(spectrum))
@@ -247,6 +271,31 @@ def _extract_features(samples: tuple[float, ...], duration_ms: int) -> list[dict
         smoothed["centroid"] = _clamp01(
             _smooth_toward(smoothed["centroid"], centroid_raw, 0.12, 0.06)
         )
+        smoothed["pitchNormalized"] = _clamp01(
+            _attack_release(
+                smoothed["pitchNormalized"],
+                pitch_normalized_raw if has_signal else 0.45,
+                100,
+                170 if has_signal else 80,
+                420 if has_signal else 520,
+            )
+        )
+        smoothed["pitchHz"] = _attack_release(
+            smoothed["pitchHz"],
+            median_pitch_hz if has_signal else last_stable_pitch_hz,
+            100,
+            170 if has_signal else 80,
+            420 if has_signal else 520,
+        )
+        smoothed["pitchConfidence"] = _clamp01(
+            _attack_release(
+                smoothed["pitchConfidence"],
+                pitch_confidence_raw if has_signal else 0.0,
+                100,
+                90,
+                380,
+            )
+        )
 
         result.append(
             {
@@ -262,6 +311,9 @@ def _extract_features(samples: tuple[float, ...], duration_ms: int) -> list[dict
                 "onset": _round(onset),
                 "transient": _round(smoothed["transient"]),
                 "centroid": _round(smoothed["centroid"]),
+                "pitchHz": _round(smoothed["pitchHz"]),
+                "pitchNormalized": _round(smoothed["pitchNormalized"]),
+                "pitchConfidence": _round(smoothed["pitchConfidence"]),
             }
         )
     return result
@@ -306,6 +358,31 @@ def _fft(values: list[complex]) -> None:
                 values[start + offset + half] = even - odd
                 factor *= root
         length *= 2
+
+
+def _estimate_spectral_pitch(spectrum: list[float], bin_hz: float) -> tuple[float, float]:
+    first = max(1, math.ceil(80 / bin_hz))
+    last = min(len(spectrum) - 2, math.floor(1000 / bin_hz))
+    if last <= first:
+        return 0.0, 0.0
+    peak_index = max(range(first, last + 1), key=spectrum.__getitem__)
+    peak = spectrum[peak_index]
+    average = sum(spectrum[first : last + 1]) / (last - first + 1)
+    confidence = _clamp01((peak - average) / max(0.18, peak) * 1.15)
+    left = spectrum[peak_index - 1]
+    right = spectrum[peak_index + 1]
+    denominator = left - 2 * peak + right
+    shift = 0.0 if abs(denominator) < 1e-9 else 0.5 * (left - right) / denominator
+    shift = min(0.5, max(-0.5, shift))
+    return (peak_index + shift) * bin_hz, confidence
+
+
+def _normalize_pitch(hz: float, min_hz: float = 80.0, max_hz: float = 1000.0) -> float:
+    if hz <= min_hz:
+        return 0.0
+    if hz >= max_hz:
+        return 1.0
+    return math.log2(hz / min_hz) / math.log2(max_hz / min_hz)
 
 
 def _smooth_toward(previous: float, target: float, rise: float, fall: float) -> float:

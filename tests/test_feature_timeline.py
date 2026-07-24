@@ -96,6 +96,9 @@ class FeatureTimelineTests(unittest.TestCase):
         self.assertGreater(low_feature["bass"], low_feature["treble"])
         self.assertGreater(high_feature["treble"], high_feature["bass"])
         self.assertGreater(high_feature["centroid"], low_feature["centroid"])
+        self.assertGreater(high_feature["pitchNormalized"], low_feature["pitchNormalized"])
+        self.assertGreater(low_feature["pitchConfidence"], 0)
+        self.assertGreater(high_feature["pitchConfidence"], 0)
 
     def test_impulse_produces_flux_onset_and_transient_decay(self) -> None:
         def impulse(time: float) -> float:
