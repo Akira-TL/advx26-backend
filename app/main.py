@@ -19,6 +19,7 @@ from pydantic import ValidationError
 
 from .config import Settings
 from .database import Database
+from .object_store import FileSystemObjectStore
 from .schemas import PackageCreated, PackageList, PackageMetadata, PackageSummary
 from .storage import FileTooLarge, build_bundle, iter_file, remove_tree, save_upload, write_manifest
 from .validation import InvalidMedia, validate_audio, validate_stl, validate_webm
@@ -97,12 +98,18 @@ def row_to_summary(row: sqlite3.Row) -> PackageSummary:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     database = Database(settings.database_path)
+    object_store = FileSystemObjectStore(
+        objects_root=settings.object_store_dir,
+        staging_root=settings.object_staging_dir,
+        chunk_size=settings.chunk_size,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         settings.packages_dir.mkdir(parents=True, exist_ok=True)
         settings.staging_dir.mkdir(parents=True, exist_ok=True)
         database.initialize()
+        object_store.initialize()
         yield
 
     app = FastAPI(
@@ -113,6 +120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.database = database
+    app.state.object_store = object_store
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
@@ -157,7 +165,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             probe = settings.staging_dir / f".write-probe-{uuid.uuid4().hex}"
             probe.write_bytes(b"ok")
             probe.unlink()
-        except OSError as error:
+            object_store.check()
+        except (OSError, sqlite3.Error) as error:
             raise HTTPException(status_code=503, detail="存储或数据库不可用") from error
         return {"status": "ready"}
 

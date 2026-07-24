@@ -35,6 +35,88 @@ CREATE TABLE IF NOT EXISTS packages (
 CREATE INDEX IF NOT EXISTS idx_packages_received_at ON packages(received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_packages_creator_id ON packages(creator_id);
 CREATE INDEX IF NOT EXISTS idx_packages_status ON packages(status);
+
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    disabled_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS user_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_digest TEXT NOT NULL UNIQUE,
+    token_hint TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    disabled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_user_tokens_user_id ON user_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_tokens_active_digest
+    ON user_tokens(token_digest) WHERE disabled_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS contents (
+    id TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    state TEXT NOT NULL CHECK (
+        state IN ('UPLOADED', 'PROCESSING', 'READY', 'FAILED', 'DELETED')
+    ),
+    display_label TEXT NOT NULL,
+    visual_seed INTEGER NOT NULL,
+    duration_ms INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),
+    source_object_key TEXT NOT NULL UNIQUE,
+    source_filename TEXT NOT NULL,
+    source_content_type TEXT NOT NULL,
+    source_byte_length INTEGER NOT NULL CHECK (source_byte_length >= 0),
+    source_sha256 TEXT NOT NULL,
+    error_code TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    ready_at TEXT,
+    deleted_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_contents_owner_created
+    ON contents(owner_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_contents_state_updated
+    ON contents(state, updated_at);
+
+CREATE TABLE IF NOT EXISTS processing_jobs (
+    id TEXT PRIMARY KEY,
+    content_id TEXT NOT NULL UNIQUE REFERENCES contents(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK (
+        status IN ('QUEUED', 'CLAIMED', 'RETRY', 'COMPLETED', 'FAILED', 'CANCELLED')
+    ),
+    stage TEXT NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
+    max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts > 0),
+    lease_owner TEXT,
+    lease_expires_at TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_processing_jobs_claimable
+    ON processing_jobs(status, lease_expires_at, created_at);
+
+CREATE TABLE IF NOT EXISTS media_objects (
+    id TEXT PRIMARY KEY,
+    content_id TEXT NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (
+        kind IN ('SOURCE', 'VIDEO', 'AUDIO', 'AUDIO_INDEX', 'MANIFEST')
+    ),
+    object_key TEXT NOT NULL UNIQUE,
+    content_type TEXT NOT NULL,
+    byte_length INTEGER NOT NULL CHECK (byte_length >= 0),
+    sha256 TEXT NOT NULL,
+    etag TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(content_id, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_media_objects_content_id
+    ON media_objects(content_id);
 """
 
 

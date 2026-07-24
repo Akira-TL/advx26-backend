@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -32,8 +33,11 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             base_dir=root,
             storage_dir=root / "storage",
             database_path=root / "storage" / "test.db",
+            object_store_dir=root / "storage" / "objects",
+            object_staging_dir=root / "storage" / "object-staging",
             api_token="test-token",
         )
+        self.settings = settings
         self.app = create_app(settings)
         self.lifespan = self.app.router.lifespan_context(self.app)
         await self.lifespan.__aenter__()
@@ -77,6 +81,16 @@ class ApiTests(unittest.IsolatedAsyncioTestCase):
             files=sample_files(),
         )
         self.assertEqual(response.status_code, 401)
+
+    async def test_readiness_reports_unavailable_object_store(self) -> None:
+        response = await self.client.get("/api/v1/ready")
+        self.assertEqual(response.status_code, 200)
+
+        shutil.rmtree(self.settings.object_store_dir)
+        self.settings.object_store_dir.write_bytes(b"not-a-directory")
+
+        response = await self.client.get("/api/v1/ready")
+        self.assertEqual(response.status_code, 503)
 
     async def test_upload_query_range_bundle_and_delete(self) -> None:
         response = await self.upload()
