@@ -27,42 +27,42 @@ paths:
             type: string
             title: Content Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CompactContent"
-        "401":
+                $ref: '#/components/schemas/CompactContent'
+        '401':
           description: A required Bearer Token is missing or invalid.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
           description: The authenticated role is not allowed to use this operation.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
           description: The content or media object does not exist or is not visible to this role.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "503":
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
           description: A required service dependency or immutable object is unavailable.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "422":
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/contents/{content_id}/assets/{asset_kind}:
     get:
       tags:
@@ -88,9 +88,9 @@ paths:
               - video
               - audio
               - audio-index
-          description: "Immutable asset type: H.264 MP4, normalized MP3, or AIX1 index."
+          description: 'Immutable asset type: H.264 MP4, normalized MP3, or AIX1 index.'
       responses:
-        "200":
+        '200':
           description: Complete immutable media object.
           headers:
             Accept-Ranges:
@@ -130,7 +130,7 @@ paths:
               schema:
                 type: string
                 format: binary
-        "206":
+        '206':
           description: One satisfiable byte range.
           headers:
             Accept-Ranges:
@@ -175,7 +175,7 @@ paths:
               schema:
                 type: string
                 format: binary
-        "416":
+        '416':
           description: The requested byte range is invalid or outside the object.
           headers:
             Accept-Ranges:
@@ -207,36 +207,36 @@ paths:
               schema:
                 type: string
                 example: bytes */4096
-        "401":
+        '401':
           description: A required Bearer Token is missing or invalid.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
           description: The authenticated role is not allowed to use this operation.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
           description: The content or media object does not exist or is not visible to this role.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "503":
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
           description: A required service dependency or immutable object is unavailable.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "422":
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
     head:
       tags:
         - devices
@@ -261,9 +261,9 @@ paths:
               - video
               - audio
               - audio-index
-          description: "Immutable asset type: H.264 MP4, normalized MP3, or AIX1 index."
+          description: 'Immutable asset type: H.264 MP4, normalized MP3, or AIX1 index.'
       responses:
-        "200":
+        '200':
           description: Complete immutable media object.
           headers:
             Accept-Ranges:
@@ -290,7 +290,7 @@ paths:
               schema:
                 type: string
                 const: Authorization
-        "206":
+        '206':
           description: One satisfiable byte range.
           headers:
             Accept-Ranges:
@@ -322,7 +322,7 @@ paths:
               schema:
                 type: string
                 example: bytes 0-1023/4096
-        "416":
+        '416':
           description: The requested byte range is invalid or outside the object.
           headers:
             Accept-Ranges:
@@ -354,74 +354,72 @@ paths:
               schema:
                 type: string
                 example: bytes */4096
-        "401":
+        '401':
           description: A required Bearer Token is missing or invalid.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "403":
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
           description: The authenticated role is not allowed to use this operation.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
           description: The content or media object does not exist or is not visible to this role.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "503":
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
           description: A required service dependency or immutable object is unavailable.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "422":
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/health:
     get:
       tags:
         - operations
       summary: Process liveness
-      description:
-        Returns 200 when the HTTP process can answer requests; it does not prove dependencies
+      description: Returns 200 when the HTTP process can answer requests; it does not prove dependencies
         are ready.
       operationId: getHealth
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthResponse"
+                $ref: '#/components/schemas/HealthResponse'
   /api/v1/ready:
     get:
       tags:
         - operations
       summary: Deployment readiness
-      description:
-        Checks SQLite, both Object Store roots, FFmpeg, FFprobe, fixed device Tokens, and—when
-        enabled—the Node/Puppeteer renderer and worker task.
+      description: Checks SQLite, both Object Store roots, FFmpeg, FFprobe, and—when enabled—the Node/Puppeteer
+        renderer and worker task. Device Token configuration does not block service readiness.
       operationId: getReadiness
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ReadinessResponse"
-        "503":
+                $ref: '#/components/schemas/ReadinessResponse'
+        '503':
           description: A required service dependency or immutable object is unavailable.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: '#/components/schemas/ErrorResponse'
   /api/v1/users/tokens:
     post:
       tags:
@@ -436,27 +434,27 @@ paths:
           schema:
             anyOf:
               - type: string
-              - type: "null"
+              - type: 'null'
             title: Authorization
       responses:
-        "201":
+        '201':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UserTokenIssued"
-        "403":
+                $ref: '#/components/schemas/UserTokenIssued'
+        '403':
           description: The authenticated role is not allowed to use this operation.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "422":
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/contents:
     get:
       tags:
@@ -464,18 +462,18 @@ paths:
       summary: List owned content
       operationId: listOwnedContents
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ContentList"
-        "401":
+                $ref: '#/components/schemas/ContentList'
+        '401':
           description: A required Bearer Token is missing or invalid.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: '#/components/schemas/ErrorResponse'
       security:
         - UserToken: []
     post:
@@ -488,39 +486,39 @@ paths:
         content:
           multipart/form-data:
             schema:
-              $ref: "#/components/schemas/Body_uploadContent"
+              $ref: '#/components/schemas/Body_uploadContent'
         required: true
       responses:
-        "201":
+        '201':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ContentCreated"
-        "400":
+                $ref: '#/components/schemas/ContentCreated'
+        '400':
           description: The request body or parameters are invalid.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "401":
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
           description: A required Bearer Token is missing or invalid.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "413":
+                $ref: '#/components/schemas/ErrorResponse'
+        '413':
           description: The uploaded audio exceeds the configured byte limit.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "422":
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
       security:
         - UserToken: []
   /api/v1/contents/{content_id}:
@@ -539,30 +537,30 @@ paths:
             type: string
             title: Content Id
       responses:
-        "200":
+        '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ContentSummary"
-        "401":
+                $ref: '#/components/schemas/ContentSummary'
+        '401':
           description: A required Bearer Token is missing or invalid.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
           description: The content or media object does not exist or is not visible to this role.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "422":
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
     delete:
       tags:
         - contents
@@ -579,26 +577,26 @@ paths:
             type: string
             title: Content Id
       responses:
-        "204":
+        '204':
           description: Successful Response
-        "401":
+        '401':
           description: A required Bearer Token is missing or invalid.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
           description: The content or media object does not exist or is not visible to this role.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "422":
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/contents/{content_id}/retry:
     post:
       tags:
@@ -615,36 +613,36 @@ paths:
             type: string
             title: Content Id
       responses:
-        "202":
+        '202':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ContentSummary"
-        "401":
+                $ref: '#/components/schemas/ContentSummary'
+        '401':
           description: A required Bearer Token is missing or invalid.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "404":
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
           description: The content or media object does not exist or is not visible to this role.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "409":
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
           description: The requested content state transition is not allowed.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-        "422":
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HTTPValidationError"
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     Body_uploadContent:
@@ -678,9 +676,9 @@ components:
           minimum: 1.0
           title: Duration Ms
         trigger:
-          $ref: "#/components/schemas/TriggerPresentation"
+          $ref: '#/components/schemas/TriggerPresentation'
         playback:
-          $ref: "#/components/schemas/PlaybackDescriptor"
+          $ref: '#/components/schemas/PlaybackDescriptor'
       type: object
       required:
         - schema_version
@@ -717,7 +715,7 @@ components:
       properties:
         items:
           items:
-            $ref: "#/components/schemas/ContentSummary"
+            $ref: '#/components/schemas/ContentSummary'
           type: array
           title: Items
         total:
@@ -770,17 +768,17 @@ components:
         processing_stage:
           anyOf:
             - type: string
-            - type: "null"
+            - type: 'null'
           title: Processing Stage
         error_code:
           anyOf:
             - type: string
-            - type: "null"
+            - type: 'null'
           title: Error Code
         error_message:
           anyOf:
             - type: string
-            - type: "null"
+            - type: 'null'
           title: Error Message
         display_label:
           type: string
@@ -790,7 +788,7 @@ components:
             - type: integer
               maximum: 30000.0
               minimum: 1.0
-            - type: "null"
+            - type: 'null'
           title: Duration Ms
         created_at:
           type: string
@@ -801,12 +799,12 @@ components:
         ready_at:
           anyOf:
             - type: string
-            - type: "null"
+            - type: 'null'
           title: Ready At
         deleted_at:
           anyOf:
             - type: string
-            - type: "null"
+            - type: 'null'
           title: Deleted At
         status_url:
           type: string
@@ -814,10 +812,10 @@ components:
         nfc_url:
           anyOf:
             - type: string
-            - type: "null"
+            - type: 'null'
           title: Nfc Url
         source:
-          $ref: "#/components/schemas/ContentSource"
+          $ref: '#/components/schemas/ContentSource'
       type: object
       required:
         - content_id
@@ -843,7 +841,7 @@ components:
       properties:
         detail:
           items:
-            $ref: "#/components/schemas/ValidationError"
+            $ref: '#/components/schemas/ValidationError'
           type: array
           title: Detail
       type: object
@@ -932,9 +930,9 @@ components:
           const: t5ai-h264-mp3-v1
           title: Profile
         video:
-          $ref: "#/components/schemas/PlaybackVideoDescriptor"
+          $ref: '#/components/schemas/PlaybackVideoDescriptor'
         audio:
-          $ref: "#/components/schemas/PlaybackAudioDescriptor"
+          $ref: '#/components/schemas/PlaybackAudioDescriptor'
       type: object
       required:
         - profile
@@ -1131,6 +1129,8 @@ tags:
     description: Upload and manage user-owned sounds.
   - name: devices
     description: Trigger resolution and Playback assets.
+  - name: debug
+    description: Temporary board media debugging routes.
 externalDocs:
   description: Interactive Swagger UI
   url: http://127.0.0.1:9000/docs

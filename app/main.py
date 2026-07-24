@@ -16,6 +16,7 @@ from .cloud_processor import CloudMediaProcessor
 from .config import Settings
 from .content_service import ContentService, EmptySourceAudio, SourceAudioTooLarge
 from .database import Database
+from .debug_media import create_debug_media_router
 from .device_api import create_device_router
 from .frame_renderer import HeadlessFrameRenderer
 from .job_repository import ProcessingJobRepository
@@ -182,6 +183,7 @@ def create_app(
             {"name": "users", "description": "Issue long-lived opaque User Tokens."},
             {"name": "contents", "description": "Upload and manage user-owned sounds."},
             {"name": "devices", "description": "Trigger resolution and Playback assets."},
+            {"name": "debug", "description": "Temporary board media debugging routes."},
         ],
     )
     app.state.settings = settings
@@ -217,6 +219,7 @@ def create_app(
             tokens=device_tokens,
         )
     )
+    app.include_router(create_debug_media_router(media_dir=settings.debug_media_dir))
 
     user_scheme = HTTPBearer(
         auto_error=False,

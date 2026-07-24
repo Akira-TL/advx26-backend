@@ -20,6 +20,7 @@ class Settings:
     object_store_dir: Path | None = None
     object_staging_dir: Path | None = None
     renderer_project_dir: Path | None = None
+    debug_media_dir: Path | None = None
     public_base_url: str = field(
         default_factory=lambda: os.getenv(
             "BACKEND_PUBLIC_BASE_URL",
@@ -94,6 +95,9 @@ class Settings:
             or self.base_dir.parent
             / "Sound-Visualization-Kaleidoscope-effect"
             / "particle-field"
+        ).resolve()
+        self.debug_media_dir = Path(
+            self.debug_media_dir or self.base_dir.parent / "tmp"
         ).resolve()
         self.public_base_url = self.public_base_url.strip().rstrip("/")
         if not self.public_base_url.startswith(("http://", "https://")):
