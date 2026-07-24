@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 from pathlib import Path
 
@@ -31,8 +32,8 @@ class HeadlessFrameRenderer:
     def check(self) -> None:
         if self._checked:
             return
-        script = self.project_dir / "scripts" / "render-explicit-frames.mjs"
-        render_page = self.project_dir / "dist" / "render.html"
+        script = self.project_dir / "scripts" / "render-audio-frames.mjs"
+        render_page = self.project_dir / "dist" / "audio-render.html"
         if not script.is_file() or not render_page.is_file():
             raise RuntimeError("renderer assets are not built")
         self._run([self.node_binary, "--version"], timeout_seconds=10)
@@ -57,37 +58,45 @@ class HeadlessFrameRenderer:
         self,
         job: ClaimedJob,
         *,
-        timeline_key: str,
+        audio_key: str,
+        duration_ms: int,
         seed: int,
         output_dir: Path,
     ) -> dict[str, object]:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=False)
-        timeline_path = output_dir.parent / "timeline.json"
+        if duration_ms <= 0:
+            raise TerminalProcessingError(
+                "NORMALIZED_AUDIO_DURATION_INVALID",
+                "规范化音频时长无效",
+            )
+        audio_path = output_dir.parent / "audio.mp3"
         try:
-            with self.object_store.open_staging(timeline_key) as source:
-                timeline_path.write_bytes(source.read())
+            with self.object_store.open_staging(audio_key) as source:
+                audio_path.write_bytes(source.read())
         except OSError as error:
             raise TransientProcessingError(
-                "FEATURE_TIMELINE_MISSING",
-                "可视化特征时间线暂不可用",
+                "NORMALIZED_AUDIO_MISSING",
+                "规范化音频暂不可用",
             ) from error
 
-        script = self.project_dir / "scripts" / "render-explicit-frames.mjs"
+        script = self.project_dir / "scripts" / "render-audio-frames.mjs"
         dist = self.project_dir / "dist"
         try:
             self._run(
                 [
                     self.node_binary,
                     str(script),
-                    "--timeline",
-                    str(timeline_path),
+                    "--audio",
+                    str(audio_path),
                     "--output",
                     str(output_dir),
                     "--dist",
                     str(dist),
                     "--seed",
                     str(seed),
+                    "--duration-ms",
+                    str(duration_ms),
                     "--width",
                     "480",
                     "--height",
@@ -120,6 +129,8 @@ class HeadlessFrameRenderer:
                 or summary.get("width") != 480
                 or summary.get("height") != 320
                 or summary.get("frame_rate") != 10
+                or summary.get("duration_ms") != duration_ms
+                or summary.get("frame_count") != math.ceil(duration_ms / 100)
                 or not isinstance(summary.get("frames"), list)
                 or summary.get("frame_count") != len(summary["frames"])
             ):

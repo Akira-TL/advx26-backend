@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import shutil
 import subprocess
 import tempfile
@@ -27,9 +28,18 @@ class DeterministicTestRenderer:
     def __init__(self, store: FileSystemObjectStore) -> None:
         self.store = store
 
-    def render(self, job, *, timeline_key: str, seed: int, output_dir: Path):
-        with self.store.open_staging(timeline_key) as source:
-            timeline = json.load(source)
+    def render(
+        self,
+        job,
+        *,
+        audio_key: str,
+        duration_ms: int,
+        seed: int,
+        output_dir: Path,
+    ):
+        with self.store.open_staging(audio_key) as source:
+            self.assert_audio(source.read())
+        frame_count = math.ceil(duration_ms / 100)
         output_dir.mkdir(parents=True, exist_ok=False)
         subprocess.run(
             [
@@ -41,9 +51,9 @@ class DeterministicTestRenderer:
                 "-f",
                 "lavfi",
                 "-i",
-                f"testsrc2=size=480x320:rate=10:duration={timeline['frame_count'] / 10}",
+                f"testsrc2=size=480x320:rate=10:duration={frame_count / 10}",
                 "-frames:v",
-                str(timeline["frame_count"]),
+                str(frame_count),
                 "-start_number",
                 "0",
                 "-threads",
@@ -58,9 +68,15 @@ class DeterministicTestRenderer:
             "width": 480,
             "height": 320,
             "frame_rate": 10,
-            "frame_count": timeline["frame_count"],
+            "duration_ms": duration_ms,
+            "frame_count": frame_count,
             "seed": seed,
         }
+
+    @staticmethod
+    def assert_audio(data: bytes) -> None:
+        if not data:
+            raise AssertionError("normalized audio is empty")
 
 
 @unittest.skipUnless(FFMPEG and FFPROBE, "FFmpeg integration tools are required")

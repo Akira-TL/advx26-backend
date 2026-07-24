@@ -6,7 +6,6 @@ from pathlib import Path
 
 from .audio_normalizer import AudioNormalizer
 from .database import Database
-from .feature_timeline import FeatureTimelineBuilder
 from .frame_renderer import HeadlessFrameRenderer
 from .job_repository import ClaimedJob
 from .media_tools import MediaTools
@@ -36,7 +35,6 @@ class CloudMediaProcessor:
             media_tools=media_tools,
         )
         self.mp3_indexer = Mp3Indexer(object_store)
-        self.feature_builder = FeatureTimelineBuilder(object_store)
         self.frame_renderer = frame_renderer
         self.video_encoder = H264VideoEncoder(
             object_store=object_store,
@@ -62,16 +60,14 @@ class CloudMediaProcessor:
             job,
             authoritative_duration_ms=normalized.duration_ms,
         )
-        await reporter.stage("BUILDING_FEATURE_TIMELINE")
-        timeline = await asyncio.to_thread(self.feature_builder.build, job)
-
         with tempfile.TemporaryDirectory(prefix="cloud-render-") as directory:
             frames_dir = Path(directory) / "frames"
             await reporter.stage("RENDERING_VIDEO")
             await asyncio.to_thread(
                 self.frame_renderer.render,
                 job,
-                timeline_key=timeline.object_key,
+                audio_key=normalized.mp3_key,
+                duration_ms=normalized.duration_ms,
                 seed=int(content["visual_seed"]),
                 output_dir=frames_dir,
             )
