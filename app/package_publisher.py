@@ -201,6 +201,10 @@ class ReadyPackagePublisher:
             media_objects=database_objects,
             ready_at=ready_at,
         )
+        try:
+            self.object_store.delete_staging_prefix(f"jobs/{job.job_id}")
+        except OSError:
+            pass
         return PublishedPackage(
             content_id=job.content_id,
             manifest_key=final_keys["manifest.json"],

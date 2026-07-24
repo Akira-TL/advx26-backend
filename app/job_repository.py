@@ -69,6 +69,7 @@ class ProcessingJobRepository:
                     lease_expires_at = ?,
                     error_code = NULL,
                     error_message = NULL,
+                    retryable = 0,
                     last_error = NULL,
                     started_at = COALESCE(started_at, ?),
                     updated_at = ?,
@@ -179,6 +180,7 @@ class ProcessingJobRepository:
                     lease_expires_at = NULL,
                     error_code = NULL,
                     error_message = NULL,
+                    retryable = 0,
                     last_error = NULL,
                     updated_at = ?,
                     finished_at = ?
@@ -226,6 +228,7 @@ class ProcessingJobRepository:
                     lease_expires_at = NULL,
                     error_code = ?,
                     error_message = ?,
+                    retryable = ?,
                     last_error = ?,
                     updated_at = ?,
                     finished_at = ?
@@ -235,6 +238,7 @@ class ProcessingJobRepository:
                     status,
                     code,
                     message,
+                    1 if retryable else 0,
                     message,
                     now,
                     finished_at,
@@ -284,6 +288,7 @@ class ProcessingJobRepository:
                 lease_expires_at = NULL,
                 error_code = 'WORKER_INTERRUPTED',
                 error_message = '媒体处理进程中断且重试次数已用尽',
+                retryable = 1,
                 last_error = '媒体处理进程中断且重试次数已用尽',
                 updated_at = ?,
                 finished_at = ?
@@ -318,6 +323,7 @@ class ProcessingJobRepository:
                 lease_expires_at = NULL,
                 error_code = 'WORKER_INTERRUPTED',
                 error_message = '媒体处理进程中断，正在重试',
+                retryable = 1,
                 last_error = '媒体处理进程中断，正在重试',
                 updated_at = ?
             WHERE status = 'CLAIMED'

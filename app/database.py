@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS processing_jobs (
     lease_expires_at TEXT,
     error_code TEXT,
     error_message TEXT,
+    retryable INTEGER NOT NULL DEFAULT 0 CHECK (retryable IN (0, 1)),
     last_error TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -134,6 +135,12 @@ class Database:
             self._ensure_column(connection, "contents", "error_message", "TEXT")
             self._ensure_column(connection, "processing_jobs", "error_code", "TEXT")
             self._ensure_column(connection, "processing_jobs", "error_message", "TEXT")
+            self._ensure_column(
+                connection,
+                "processing_jobs",
+                "retryable",
+                "INTEGER NOT NULL DEFAULT 0 CHECK (retryable IN (0, 1))",
+            )
 
     @staticmethod
     def _ensure_column(
@@ -411,6 +418,120 @@ class Database:
                 (content_id, kind),
             ).fetchone()
 
+    def retry_owned_content(
+        self,
+        *,
+        owner_user_id: str,
+        content_id: str,
+        updated_at: str,
+    ) -> str | None:
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT
+                    contents.state,
+                    processing_jobs.status,
+                    processing_jobs.retryable
+                FROM contents
+                JOIN processing_jobs ON processing_jobs.content_id = contents.id
+                WHERE contents.id = ? AND contents.owner_user_id = ?
+                """,
+                (content_id, owner_user_id),
+            ).fetchone()
+            if row is None:
+                return None
+            if row["state"] != "FAILED" or row["status"] != "FAILED":
+                return "NOT_FAILED"
+            if not row["retryable"]:
+                return "TERMINAL"
+            connection.execute(
+                """
+                UPDATE processing_jobs
+                SET status = 'RETRY',
+                    stage = 'UPLOADED',
+                    attempt = 0,
+                    lease_owner = NULL,
+                    lease_expires_at = NULL,
+                    error_code = NULL,
+                    error_message = NULL,
+                    retryable = 0,
+                    last_error = NULL,
+                    updated_at = ?,
+                    started_at = NULL,
+                    finished_at = NULL
+                WHERE content_id = ?
+                """,
+                (updated_at, content_id),
+            )
+            connection.execute(
+                """
+                UPDATE contents
+                SET state = 'PROCESSING',
+                    error_code = NULL,
+                    error_message = NULL,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (updated_at, content_id),
+            )
+            return "RETRIED"
+
+    def delete_owned_content(
+        self,
+        *,
+        owner_user_id: str,
+        content_id: str,
+        deleted_at: str,
+    ) -> bool:
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT state FROM contents WHERE id = ? AND owner_user_id = ?",
+                (content_id, owner_user_id),
+            ).fetchone()
+            if row is None:
+                return False
+            connection.execute(
+                """
+                UPDATE contents
+                SET state = 'DELETED', deleted_at = COALESCE(deleted_at, ?), updated_at = ?
+                WHERE id = ?
+                """,
+                (deleted_at, deleted_at, content_id),
+            )
+            connection.execute(
+                """
+                UPDATE processing_jobs
+                SET status = CASE
+                        WHEN status IN ('QUEUED', 'CLAIMED', 'RETRY') THEN 'CANCELLED'
+                        ELSE status
+                    END,
+                    lease_owner = NULL,
+                    lease_expires_at = NULL,
+                    updated_at = ?
+                WHERE content_id = ?
+                """,
+                (deleted_at, content_id),
+            )
+            return True
+
+    def list_staging_cleanup_jobs(self) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT
+                    processing_jobs.id AS job_id,
+                    processing_jobs.status,
+                    processing_jobs.updated_at,
+                    processing_jobs.lease_expires_at,
+                    contents.state AS content_state
+                FROM processing_jobs
+                JOIN contents ON contents.id = processing_jobs.content_id
+                ORDER BY processing_jobs.updated_at, processing_jobs.id
+                """
+            ).fetchall()
+
     def list_owned_contents(self, owner_user_id: str) -> list[sqlite3.Row]:
         with self.connect() as connection:
             return connection.execute(
@@ -421,7 +542,7 @@ class Database:
                     processing_jobs.status AS processing_status
                 FROM contents
                 LEFT JOIN processing_jobs ON processing_jobs.content_id = contents.id
-                WHERE contents.owner_user_id = ? AND contents.state != 'DELETED'
+                WHERE contents.owner_user_id = ?
                 ORDER BY contents.created_at DESC
                 """,
                 (owner_user_id,),
@@ -444,7 +565,6 @@ class Database:
                 LEFT JOIN processing_jobs ON processing_jobs.content_id = contents.id
                 WHERE contents.id = ?
                   AND contents.owner_user_id = ?
-                  AND contents.state != 'DELETED'
                 """,
                 (content_id, owner_user_id),
             ).fetchone()

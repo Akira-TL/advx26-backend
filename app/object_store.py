@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 import uuid
 from collections.abc import Iterator
@@ -61,6 +62,25 @@ class FileSystemObjectStore:
 
     def stat_staging(self, key: str) -> ObjectStat:
         return self._stat(self.staging_root, key)
+
+    def staging_prefix_size(self, prefix: str) -> int:
+        path = self._path(self.staging_root, prefix)
+        if not path.exists():
+            return 0
+        if path.is_file():
+            return path.stat().st_size
+        return sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
+
+    def delete_staging_prefix(self, prefix: str) -> bool:
+        path = self._path(self.staging_root, prefix)
+        if not path.exists():
+            return False
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        self._remove_empty_parents(path.parent, self.staging_root)
+        return True
 
     def iter_range(
         self,

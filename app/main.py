@@ -107,9 +107,17 @@ def row_to_content_summary(row: sqlite3.Row) -> ContentSummary:
         error_code=row["error_code"],
         error_message=row["error_message"],
         display_label=row["display_label"],
+        duration_ms=row["duration_ms"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        ready_at=row["ready_at"],
+        deleted_at=row["deleted_at"],
         status_url=f"/api/v1/contents/{content_id}",
+        nfc_url=(
+            f"/c/{content_id}"
+            if row["state"] == "READY" and row["deleted_at"] is None
+            else None
+        ),
         source=ContentSource(
             filename=row["source_filename"],
             content_type=row["source_content_type"],
@@ -369,6 +377,54 @@ def create_app(
             raise HTTPException(status_code=404, detail="内容不存在")
         response.headers["Cache-Control"] = "no-store"
         return row_to_content_summary(row)
+
+    @app.post(
+        "/api/v1/contents/{content_id}/retry",
+        response_model=ContentSummary,
+        status_code=202,
+    )
+    async def retry_content(
+        content_id: str,
+        response: Response,
+        user: UserPrincipal = Depends(require_user),
+    ) -> ContentSummary:
+        if not PACKAGE_ID_PATTERN.fullmatch(content_id):
+            raise HTTPException(status_code=404, detail="内容不存在")
+        result = database.retry_owned_content(
+            owner_user_id=user.user_id,
+            content_id=content_id,
+            updated_at=utc_string(datetime.now(timezone.utc)),
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="内容不存在")
+        if result == "NOT_FAILED":
+            raise HTTPException(status_code=409, detail="内容当前不可重试")
+        if result == "TERMINAL":
+            raise HTTPException(status_code=409, detail="源文件错误不可重试，请重新上传")
+        row = database.get_owned_content(
+            owner_user_id=user.user_id,
+            content_id=content_id,
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="内容不存在")
+        response.headers["Cache-Control"] = "no-store"
+        return row_to_content_summary(row)
+
+    @app.delete("/api/v1/contents/{content_id}", status_code=204)
+    async def delete_content(
+        content_id: str,
+        user: UserPrincipal = Depends(require_user),
+    ) -> Response:
+        if not PACKAGE_ID_PATTERN.fullmatch(content_id):
+            raise HTTPException(status_code=404, detail="内容不存在")
+        deleted = database.delete_owned_content(
+            owner_user_id=user.user_id,
+            content_id=content_id,
+            deleted_at=utc_string(datetime.now(timezone.utc)),
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="内容不存在")
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
     @app.post(
         "/api/v1/packages",

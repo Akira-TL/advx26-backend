@@ -33,9 +33,13 @@ class ContentSummary(BaseModel):
     error_code: str | None = None
     error_message: str | None = None
     display_label: str
+    duration_ms: int | None = None
     created_at: str
     updated_at: str
+    ready_at: str | None = None
+    deleted_at: str | None = None
     status_url: str
+    nfc_url: str | None = None
     source: ContentSource
 
 
