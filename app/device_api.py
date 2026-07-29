@@ -29,6 +29,7 @@ ASSET_KINDS = {
     "video": "VIDEO",
     "audio": "AUDIO",
     "audio-index": "AUDIO_INDEX",
+    "replay-params": "REPLAY_PARAMS",
 }
 
 
@@ -77,18 +78,33 @@ def create_device_router(
 
     @router.get(
         "/c/{content_id}",
-        response_model=CompactContent,
         responses=error_responses(401, 403, 404, 503),
-        summary="Resolve NFC content for Trigger",
-        description="Return the complete READY Compact Content document for the fixed Trigger board.",
+        summary="Resolve NFC content (device JSON or browser preview)",
+        description="With Trigger Token: returns Compact Content JSON. Without auth: serves an HTML preview page for browsers.",
         operation_id="resolveTriggerContent",
     )
     async def resolve_compact_content(
         content_id: str,
         request: Request,
-        _: DevicePrincipal = Depends(require_trigger),
+        credentials: HTTPAuthorizationCredentials | None = Security(trigger_scheme),
     ) -> Response:
         _validate_content_id(content_id)
+
+        if credentials is None:
+            from .preview_page import serve_preview_page
+            return serve_preview_page(database, content_id, request)
+
+        authorization = f"{credentials.scheme} {credentials.credentials}"
+        principal = tokens.authenticate(authorization)
+        if principal is None:
+            raise HTTPException(
+                status_code=401,
+                detail="无效或缺少设备 Token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if principal.role != DEVICE_ROLE_TRIGGER:
+            raise HTTPException(status_code=403, detail="设备角色无权访问此接口")
+
         row = database.get_ready_media_object(content_id=content_id, kind="MANIFEST")
         if row is None:
             raise HTTPException(status_code=404, detail="内容不存在或尚未就绪")
@@ -234,6 +250,13 @@ def _absolutize_manifest_urls(manifest: dict[str, object], base_url: str) -> Non
             if not isinstance(value, str) or not value.startswith("/"):
                 raise HTTPException(status_code=503, detail="内容清单损坏")
             descriptor[field] = f"{base_url}{value}"
+    replay = playback.get("replay")
+    if isinstance(replay, dict):
+        for field in ("url", "params_url"):
+            value = replay.get(field)
+            if not isinstance(value, str) or not value.startswith("/"):
+                raise HTTPException(status_code=503, detail="内容清单损坏")
+            replay[field] = f"{base_url}{value}"
 
 
 def _parse_range(value: str, size: int) -> tuple[int, int] | None:

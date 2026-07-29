@@ -30,11 +30,26 @@ EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 class EmailRegisterRequest(BaseModel):
     email: str = Field(pattern=EMAIL_PATTERN, max_length=254, examples=["user@example.com"])
     password: str = Field(min_length=8, max_length=128)
+    store_private_key: bool = Field(
+        default=False,
+        description="If true, the backend stores the generated wallet private key. If false, the private key is returned only once and never stored.",
+    )
 
 
 class EmailRegistered(BaseModel):
     user_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     email: str = Field(pattern=EMAIL_PATTERN)
+    wallet_address: str = Field(
+        pattern=r"^0x[0-9a-fA-F]{40}$",
+        description="Wallet address auto-assigned at registration. Wallet login is equivalent to email login.",
+    )
+    private_key: str = Field(
+        pattern=r"^0x[0-9a-fA-F]{64}$",
+        description="Wallet private key. Returned once at registration. Stored server-side only if store_private_key was true.",
+    )
+    private_key_stored: bool = Field(
+        description="Whether the backend persisted the private key.",
+    )
 
 
 class EmailLoginRequest(BaseModel):
@@ -108,6 +123,10 @@ class ContentSummary(BaseModel):
     source: ContentSource
 
 
+class ContentLabelUpdate(BaseModel):
+    display_label: str = Field(min_length=1, max_length=64)
+
+
 class ContentList(BaseModel):
     items: list[ContentSummary]
     total: int = Field(ge=0)
@@ -173,3 +192,69 @@ class CompactContent(BaseModel):
     duration_ms: int = Field(ge=1, le=30_000)
     trigger: TriggerPresentation
     playback: PlaybackDescriptor
+
+
+class ChainStatusResponse(BaseModel):
+    content_id: str
+    chain_state: str
+    token_id: int | None = None
+    tx_hash: str | None = None
+    contract_address: str | None = None
+    token_uri: str | None = None
+    owner_wallet: str | None = None
+    error_message: str | None = None
+    minted_at: str | None = None
+
+
+class MintRequest(BaseModel):
+    pass
+
+
+class PrepareMintResponse(BaseModel):
+    to: str
+    data: str
+    nonce: int
+    gas: int
+    gas_price: str
+    chain_id: int
+    value: int
+    token_uri: str
+
+
+class SubmitSignedRequest(BaseModel):
+    raw_tx: str
+
+
+class MintResultResponse(BaseModel):
+    content_id: str
+    token_id: int
+    tx_hash: str
+    contract_address: str
+    chain_state: str = "MINTED"
+
+
+class ClaimRequest(BaseModel):
+    pass
+
+
+class EditionResponse(BaseModel):
+    id: str
+    content_id: str
+    token_id: int
+    tx_hash: str
+    owner_wallet: str
+    token_uri: str
+    edition_type: str
+    minted_at: str
+
+
+class EditionsListResponse(BaseModel):
+    content_id: str
+    editions: list[EditionResponse]
+
+
+class TokenMetadataResponse(BaseModel):
+    name: str
+    description: str
+    image: str
+    attributes: list[dict]

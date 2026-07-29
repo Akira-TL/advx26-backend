@@ -74,6 +74,11 @@ python run.py
 | `BACKEND_PROCESSING_MAX_ATTEMPTS` | `3` | transient failure 最大处理次数 |
 | `BACKEND_FAILED_STAGING_RETENTION_SECONDS` | `86400` | 失败诊断 staging 保留时间 |
 | `BACKEND_FAILED_STAGING_MAX_BYTES` | `536870912` | 失败 staging 总上限 |
+| `BACKEND_CHAIN_ENABLED` | `0` | `1` 时启用链上铸造（NFT mint/claim）功能 |
+| `BACKEND_CHAIN_CONTRACT_ADDRESS` | 空 | ERC-721 合约地址；启用 chain 时必填 |
+| `BACKEND_CHAIN_OPERATOR_PRIVATE_KEY` | 空 | 服务端代签 operator 私钥（0x + 64 hex）；用户未托管私钥时回退使用 |
+| `BACKEND_CHAIN_RPC_URL` | Injective testnet | Injective EVM JSON-RPC 端点 |
+| `BACKEND_CHAIN_ID` | `1439` | 链 ID（Injective testnet = 1439） |
 
 数据默认写入：
 
@@ -100,19 +105,60 @@ curl http://127.0.0.1:9000/api/v1/ready
 
 ## API 示例
 
-### 1. 签发 User Token
+### 1. 注册（邮箱 + 密码）
 
 ```bash
-curl -sS -X POST http://127.0.0.1:9000/api/v1/users/tokens
+curl -sS -X POST http://127.0.0.1:9000/api/v1/users \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"password12345"}'
 ```
 
-响应中的 `token` 需要由客户端安全保存：
+注册成功返回 `201`，响应头 `Cache-Control: no-store`，响应体示例：
+
+```json
+{
+  "user_id": "0123456789abcdef0123456789abcdef",
+  "email": "user@example.com",
+  "wallet_address": "0xAbC...1234",
+  "private_key": "0x<64 hex>",
+  "private_key_stored": false
+}
+```
+
+注册后的返回行为：
+
+- `user_id`：账户唯一标识（32 位十六进制）。
+- 密码只以 PBKDF2-HMAC-SHA256 摘要存储，绝不回显明文。
+- `wallet_address`：注册时自动为用户分配的钱包地址（EIP-55 校验和格式）。该地址与账户绑定，因此钱包登录（challenge/verify）与邮箱登录等价，解析到同一 `user_id`。
+- `private_key`：钱包私钥，**仅在注册响应中返回一次**。请求体可选字段 `store_private_key`（默认 `false`）决定是否由后端托管：
+  - `false`（默认）：后端不存储私钥（数据库中为 `NULL`），客户端必须自行保存，丢失后无法找回。
+  - `true`：后端存储私钥，`private_key_stored` 返回 `true`。
+- `private_key_stored`：标识本次私钥是否被后端持久化。
+- 邮箱重复注册返回 `409`。
+
+托管私钥示例：
+
+```bash
+curl -sS -X POST http://127.0.0.1:9000/api/v1/users \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"password12345","store_private_key":true}'
+```
+
+### 2. 登录获取 User Token
+
+```bash
+curl -sS -X POST http://127.0.0.1:9000/api/v1/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"password12345"}'
+```
+
+每次登录签发一枚全新的不透明 `token`，仅返回一次，需由客户端安全保存；邮箱或密码错误返回 `401`：
 
 ```bash
 export USER_TOKEN='usr_example_only'
 ```
 
-### 2. 上传音频
+### 3. 上传音频
 
 ```bash
 curl -sS -X POST http://127.0.0.1:9000/api/v1/contents \
@@ -122,7 +168,7 @@ curl -sS -X POST http://127.0.0.1:9000/api/v1/contents \
 
 上传立即返回 `content_id` 和 `status_url`，不会等待 Chromium 渲染。
 
-### 3. 查询状态
+### 4. 查询状态
 
 ```bash
 export CONTENT_ID='0123456789abcdef0123456789abcdef'
@@ -147,7 +193,7 @@ curl -i -X DELETE \
   "http://127.0.0.1:9000/api/v1/contents/$CONTENT_ID"
 ```
 
-### 4. Trigger 解析 NFC 内容
+### 5. Trigger 解析 NFC 内容
 
 NFC 写入稳定地址：
 
@@ -165,7 +211,7 @@ curl -sS \
 
 返回完整 Compact Content，包括绝对 video/audio/index URL，不包含用户身份或原始音频信息。
 
-### 5. Playback 下载媒体
+### 6. Playback 下载媒体
 
 ```bash
 curl -i \

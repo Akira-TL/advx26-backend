@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>SoundPola · 预览</title>
+<meta property="og:title" content="SoundPola · 预览">
+<meta property="og:description" content="声音记忆">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0e14;--surface:#141b24;--surface2:#1a2330;--accent:#63e0cb;--gold:#f0c060;--text:#e8edf4;--text2:#8b99a8;--text3:#5a6a7a;--radius:16px}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;background:var(--bg);color:var(--text);min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+.card{width:100%;max-width:380px;background:var(--surface);border-radius:var(--radius);overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.4)}
+.visual{position:relative;width:100%;aspect-ratio:1;background:#0d1219;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.visual video{width:100%;height:100%;object-fit:cover}
+.tap-hint{position:absolute;width:40px;height:40px;border-radius:50%;background:rgba(10,14,20,.35);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px);transition:opacity .35s;pointer-events:none}
+.tap-hint svg{width:16px;height:16px;fill:rgba(232,237,244,.85);margin-left:2px}
+.tap-hint.hidden{opacity:0}
+.info{padding:20px 24px 24px}
+.title{font-size:18px;font-weight:600;margin-bottom:8px}
+.meta{font-size:13px;color:var(--text2);display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:4px}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;border-radius:20px;padding:3px 10px;font-weight:500}
+.badge.on-chain{color:var(--gold);background:rgba(240,192,96,.1);border:1px solid rgba(240,192,96,.3)}
+.badge.preview-only{color:var(--text2);background:rgba(139,153,168,.1);border:1px solid rgba(139,153,168,.25)}
+.progress{margin-top:14px;height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden;cursor:pointer}
+.progress-bar{height:100%;width:0%;background:var(--accent);border-radius:2px;transition:width .1s linear}
+.time{margin-top:6px;font-size:11px;color:var(--text3);display:flex;justify-content:space-between}
+.detail{margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.06)}
+.detail-row{display:flex;justify-content:space-between;font-size:12px;color:var(--text2);margin-bottom:6px}
+.detail-row .val{color:var(--text);font-weight:500}
+.chain-info{margin-top:14px;padding:14px;background:var(--surface2);border-radius:12px}
+.chain-row{display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px}
+.chain-row:last-child{margin-bottom:0}
+.chain-row .label{color:var(--text3)}
+.chain-row .value{color:var(--text);font-weight:500}
+.mono{font-family:"SF Mono",Menlo,monospace;font-size:11px}
+.not-chained{font-size:12px;color:var(--text3);text-align:center;padding:4px 0}
+.claim-btn{display:block;width:100%;margin-top:16px;padding:14px;border-radius:12px;background:linear-gradient(135deg,#63e0cb,#3db8a5);color:#0a0e14;font-size:15px;font-weight:600;text-align:center;text-decoration:none;transition:opacity .15s}
+.claim-btn:active{opacity:.85}
+.claim-hint{margin-top:8px;font-size:11px;color:var(--text3);text-align:center}
+.footer{margin-top:24px;text-align:center;font-size:12px;color:var(--text3)}
+.footer a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="visual" id="visual" onclick="togglePlay()">
+    <video id="vid" loop playsinline preload="metadata" src=""></video>
+    <div class="tap-hint" id="hint"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+  </div>
+  <div class="info">
+    <div class="title">示例标题</div>
+    <div class="meta">
+      <span class="badge on-chain">&#9670; 已上链</span>
+      <span>12.0s</span>
+      <span>2026.07.25</span>
+    </div>
+    <div class="progress" id="progress" onclick="seek(event)">
+      <div class="progress-bar" id="bar"></div>
+    </div>
+    <div class="time"><span id="cur">0:00</span><span>12.0s</span></div>
+    <div class="detail">
+      <div class="detail-row"><span>内容 ID</span><span class="val mono">abcdef123456…</span></div>
+      <div class="detail-row"><span>时长</span><span class="val">12.0 秒</span></div>
+      <div class="detail-row"><span>创建</span><span class="val">2026.07.25</span></div>
+    </div>
+    <div class="chain-info">
+      <div class="chain-row"><span class="label">Token</span><span class="value">#1</span></div>
+      <div class="chain-row"><span class="label">合约</span><span class="value mono">0x1234…abcd</span></div>
+      <div class="chain-row"><span class="label">收藏</span><span class="value">3 人已领取</span></div>
+    </div>
+    <a class="claim-btn" id="claimBtn" href="soundpola://c/abcdef123456">在 SoundPola 中领取</a>
+    <p class="claim-hint">打开 App 将此声音添加到你的链上钱包</p>
+  </div>
+  <audio id="aud" preload="auto" src=""></audio>
+</div>
+<div class="footer">由 <a href="#">SoundPola</a> 铸造 · 声音记忆上链存证</div>
+<script>
+const aud=document.getElementById("aud"),vid=document.getElementById("vid"),
+bar=document.getElementById("bar"),cur=document.getElementById("cur"),
+hint=document.getElementById("hint");
+let playing=false;
+function togglePlay(){playing?pause():play()}
+function play(){aud.play();vid.play();playing=true;hint.classList.add("hidden")}
+function pause(){aud.pause();vid.pause();playing=false;hint.classList.remove("hidden")}
+aud.addEventListener("timeupdate",()=>{if(!aud.duration)return;bar.style.width=(aud.currentTime/aud.duration*100)+"%";cur.textContent=fmt(aud.currentTime)});
+aud.addEventListener("ended",()=>{pause();bar.style.width="0%";cur.textContent="0:00";aud.currentTime=0;vid.currentTime=0});
+function seek(e){if(!aud.duration)return;e.stopPropagation();const r=e.currentTarget.getBoundingClientRect();const p=(e.clientX-r.left)/r.width;aud.currentTime=p*aud.duration;vid.currentTime=p*vid.duration}
+function fmt(s){const m=Math.floor(s/60),ss=Math.floor(s%60);return m+":"+(ss<10?"0":"")+ss}
+</script>
+</body>
+</html>

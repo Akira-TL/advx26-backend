@@ -170,6 +170,18 @@ class PackagePublisherTests(unittest.IsolatedAsyncioTestCase):
             f"jobs/{job.job_id}/video/video.json",
             io.BytesIO(json.dumps(video_metadata).encode()),
         )
+        replay_params = {
+            "seed": 7,
+            "durationMs": 1150,
+            "width": 480,
+            "height": 320,
+            "fps": 10,
+            "quality": "medium",
+        }
+        store.replace_staging(
+            f"jobs/{job.job_id}/replay/replay-params.json",
+            io.BytesIO(json.dumps(replay_params).encode()),
+        )
 
     async def test_publishes_complete_ready_package_and_preserves_owner_source(self) -> None:
         database, store, job, user_id, source_key, source_payload = self.create_context()
@@ -195,7 +207,7 @@ class PackagePublisherTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(manifest["playback"]["video"]["url"], f"/api/v1/contents/{job.content_id}/assets/video")
         self.assertEqual(manifest["playback"]["audio"]["index_version"], 1)
         media = database.get_media_objects(job.content_id)
-        self.assertEqual({row["kind"] for row in media}, {"SOURCE", "VIDEO", "AUDIO", "AUDIO_INDEX", "MANIFEST"})
+        self.assertEqual({row["kind"] for row in media}, {"SOURCE", "VIDEO", "AUDIO", "AUDIO_INDEX", "MANIFEST", "REPLAY_PARAMS"})
 
     async def test_promotion_failure_leaves_content_non_ready_and_retry_succeeds(self) -> None:
         database, store, job, *_ = self.create_context(store_type=FailOnceStore)

@@ -153,6 +153,21 @@ class DeviceApiTests(unittest.IsolatedAsyncioTestCase):
                 ).encode()
             ),
         )
+        store.replace_staging(
+            f"jobs/{job_id}/replay/replay-params.json",
+            io.BytesIO(
+                json.dumps(
+                    {
+                        "seed": 7,
+                        "durationMs": 1150,
+                        "width": 480,
+                        "height": 320,
+                        "fps": 10,
+                        "quality": "medium",
+                    }
+                ).encode()
+            ),
+        )
         await ReadyPackagePublisher(
             database=database,
             object_store=store,
@@ -190,7 +205,9 @@ class DeviceApiTests(unittest.IsolatedAsyncioTestCase):
         compact_url = f"/c/{self.content_id}"
         asset_url = f"/api/v1/contents/{self.content_id}/assets/audio"
 
-        self.assertEqual((await self.client.get(compact_url)).status_code, 401)
+        no_auth = await self.client.get(compact_url)
+        self.assertEqual(no_auth.status_code, 200)
+        self.assertIn("text/html", no_auth.headers["content-type"])
         self.assertEqual(
             (await self.client.get(compact_url, headers={"Authorization": "Bearer unknown"})).status_code,
             401,
@@ -297,6 +314,75 @@ class DeviceApiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(corrupt.status_code, 503)
         self.assertNotEqual(corrupt.content, b"corrupt")
+
+    async def test_flash_preview_returns_public_json(self) -> None:
+        response = await self.client.get(f"/api/flash/preview/{self.content_id}")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertEqual(data["content_id"], self.content_id)
+        self.assertEqual(data["title"], "声音碎片 #DEVICE")
+        self.assertEqual(data["duration_ms"], 1150)
+        self.assertFalse(data["on_chain"])
+        self.assertIsNone(data["token_id"])
+        self.assertEqual(data["editions_count"], 0)
+        self.assertEqual(
+            data["audio_url"],
+            f"http://testserver/preview/{self.content_id}/audio",
+        )
+        self.assertEqual(
+            data["video_url"],
+            f"http://testserver/preview/{self.content_id}/video",
+        )
+
+        database = self.app.state.database
+        with database.connect() as conn:
+            conn.execute(
+                "INSERT INTO content_chain "
+                "(content_id, chain_state, token_id, tx_hash, contract_address) "
+                "VALUES (?, 'MINTED', 42, '0xabc', '0x1234567890abcdef1234')",
+                (self.content_id,),
+            )
+
+        minted = (await self.client.get(f"/api/flash/preview/{self.content_id}")).json()
+        self.assertTrue(minted["on_chain"])
+        self.assertEqual(minted["token_id"], 42)
+        self.assertEqual(minted["tx_hash"], "0xabc")
+        self.assertEqual(minted["contract_address"], "0x1234567890abcdef1234")
+
+    async def test_flash_preview_rejects_unknown_and_pending_content(self) -> None:
+        self.assertEqual(
+            (await self.client.get("/api/flash/preview/not-a-valid-id")).status_code,
+            404,
+        )
+        self.assertEqual(
+            (await self.client.get(f"/api/flash/preview/{uuid.uuid4().hex}")).status_code,
+            404,
+        )
+
+        database = self.app.state.database
+        store = self.app.state.object_store
+        created_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        pending_id = uuid.uuid4().hex
+        source_key = f"contents/{pending_id}/source/original"
+        store.put(source_key, io.BytesIO(b"pending"))
+        database.create_uploaded_content(
+            content_id=pending_id,
+            owner_user_id=self.user_id,
+            display_label="声音碎片 #PENDING",
+            visual_seed=1,
+            source_object_key=source_key,
+            source_filename="pending.wav",
+            source_content_type="audio/wav",
+            source_byte_length=7,
+            source_sha256=hashlib.sha256(b"pending").hexdigest(),
+            job_id=uuid.uuid4().hex,
+            media_object_id=uuid.uuid4().hex,
+            created_at=created_at,
+        )
+        response = await self.client.get(f"/api/flash/preview/{pending_id}")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "内容处理中，请稍后再试")
 
 
 if __name__ == "__main__":

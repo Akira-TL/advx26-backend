@@ -145,6 +145,45 @@ class ContentApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(password, row["password_hash"])
         self.assertTrue(row["password_hash"].startswith("pbkdf2_sha256$"))
 
+    async def test_registration_assigns_wallet_and_does_not_store_private_key_by_default(self) -> None:
+        register = await self.client.post(
+            "/api/v1/users",
+            json={"email": "wallet@example.com", "password": "password12345"},
+        )
+        self.assertEqual(register.status_code, 201, register.text)
+        body = register.json()
+        self.assertRegex(body["wallet_address"], r"^0x[0-9a-fA-F]{40}$")
+        self.assertRegex(body["private_key"], r"^0x[0-9a-fA-F]{64}$")
+        self.assertFalse(body["private_key_stored"])
+
+        with self.app.state.database.connect() as connection:
+            row = connection.execute(
+                "SELECT wallet_address, private_key FROM users WHERE id = ?",
+                (body["user_id"],),
+            ).fetchone()
+        self.assertEqual(row["wallet_address"], body["wallet_address"])
+        self.assertIsNone(row["private_key"])
+
+    async def test_registration_stores_private_key_when_opted_in(self) -> None:
+        register = await self.client.post(
+            "/api/v1/users",
+            json={
+                "email": "custody@example.com",
+                "password": "password12345",
+                "store_private_key": True,
+            },
+        )
+        self.assertEqual(register.status_code, 201, register.text)
+        body = register.json()
+        self.assertTrue(body["private_key_stored"])
+
+        with self.app.state.database.connect() as connection:
+            row = connection.execute(
+                "SELECT private_key FROM users WHERE id = ?",
+                (body["user_id"],),
+            ).fetchone()
+        self.assertEqual(row["private_key"], body["private_key"])
+
     async def test_upload_persists_exact_source_and_creates_owned_job(self) -> None:
         issued = await self.issue_user()
         payload = b"RIFF" + b"source-audio-bytes" * 4
@@ -282,6 +321,60 @@ class ContentApiTests(unittest.IsolatedAsyncioTestCase):
             [path for path in self.settings.object_store_dir.rglob("*") if path.is_file()],
             [],
         )
+
+
+    async def test_rename_owned_content_updates_display_label(self) -> None:
+        issued = await self.issue_user()
+        created = await self.client.post(
+            "/api/v1/contents",
+            headers=self.auth(issued["token"]),
+            files={"audio": ("voice.wav", b"rename-audio", "audio/wav")},
+        )
+        content_id = created.json()["content_id"]
+
+        renamed = await self.client.patch(
+            f"/api/v1/contents/{content_id}",
+            headers=self.auth(issued["token"]),
+            json={"display_label": "我的新名字"},
+        )
+
+        self.assertEqual(renamed.status_code, 200, renamed.text)
+        self.assertEqual(renamed.json()["display_label"], "我的新名字")
+
+        detail = await self.client.get(
+            f"/api/v1/contents/{content_id}",
+            headers=self.auth(issued["token"]),
+        )
+        self.assertEqual(detail.json()["display_label"], "我的新名字")
+
+    async def test_rename_rejects_other_users_and_missing_token(self) -> None:
+        first = await self.issue_user()
+        second = await self.issue_user()
+        created = await self.client.post(
+            "/api/v1/contents",
+            headers=self.auth(first["token"]),
+            files={"audio": ("voice.wav", b"rename-owner-audio", "audio/wav")},
+        )
+        content_id = created.json()["content_id"]
+
+        foreign = await self.client.patch(
+            f"/api/v1/contents/{content_id}",
+            headers=self.auth(second["token"]),
+            json={"display_label": "hijack"},
+        )
+        anonymous = await self.client.patch(
+            f"/api/v1/contents/{content_id}",
+            json={"display_label": "anon"},
+        )
+
+        self.assertEqual(foreign.status_code, 404)
+        self.assertEqual(anonymous.status_code, 401)
+
+        detail = await self.client.get(
+            f"/api/v1/contents/{content_id}",
+            headers=self.auth(first["token"]),
+        )
+        self.assertNotEqual(detail.json()["display_label"], "hijack")
 
 
 if __name__ == "__main__":

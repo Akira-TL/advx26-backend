@@ -36,6 +36,7 @@ class PublishedPackage:
     audio_key: str
     audio_index_key: str
     duration_ms: int
+    replay_params_key: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +114,9 @@ class ReadyPackagePublisher:
             expected_key=f"jobs/{job.job_id}/video/video.mp4",
             content_type="video/mp4",
         )
+        replay_params = self._load_replay_params(
+            expected_key=f"jobs/{job.job_id}/replay/replay-params.json",
+        )
         self._validate_profiles(
             content_id=job.content_id,
             duration_ms=duration_ms,
@@ -151,6 +155,7 @@ class ReadyPackagePublisher:
             "video.mp4": video,
             "audio.mp3": audio,
             "audio.idx": audio_index,
+            "replay-params.json": replay_params,
             "manifest.json": manifest_object,
         }
         final_keys = {
@@ -213,6 +218,7 @@ class ReadyPackagePublisher:
             audio_key=final_keys["audio.mp3"],
             audio_index_key=final_keys["audio.idx"],
             duration_ms=duration_ms,
+            replay_params_key=final_keys["replay-params.json"],
         )
 
     def _read_json(self, key: str) -> dict[str, object]:
@@ -260,6 +266,32 @@ class ReadyPackagePublisher:
             byte_length=byte_length,
             sha256=sha256,
             etag=etag,
+            payload=payload,
+        )
+
+    def _load_replay_params(self, *, expected_key: str) -> _ObjectDescriptor:
+        try:
+            with self.object_store.open_staging(expected_key) as source:
+                payload = source.read()
+            parsed = json.loads(payload)
+        except (FileNotFoundError, json.JSONDecodeError, OSError) as error:
+            raise InvalidPublication("replay params missing or invalid") from error
+        if not isinstance(parsed, dict):
+            raise InvalidPublication("replay params is not an object")
+        seed = parsed.get("seed")
+        duration_ms = parsed.get("durationMs")
+        if not isinstance(seed, int) or isinstance(seed, bool):
+            raise InvalidPublication("replay params seed is invalid")
+        if not isinstance(duration_ms, int) or isinstance(duration_ms, bool) or duration_ms <= 0:
+            raise InvalidPublication("replay params duration is invalid")
+        sha256 = hashlib.sha256(payload).hexdigest()
+        return _ObjectDescriptor(
+            kind="REPLAY_PARAMS",
+            key=expected_key,
+            content_type="application/json",
+            byte_length=len(payload),
+            sha256=sha256,
+            etag=f'"{sha256}"',
             payload=payload,
         )
 
@@ -366,6 +398,11 @@ class ReadyPackagePublisher:
                     "index_byte_length": audio_index.byte_length,
                     "index_sha256": audio_index.sha256,
                     "index_etag": audio_index.etag,
+                },
+                "replay": {
+                    "kind": "webgl-interactive",
+                    "url": f"/replay-viewer/replay.html?content={content_id}",
+                    "params_url": f"{base}/replay-params",
                 },
             },
         }

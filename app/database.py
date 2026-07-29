@@ -13,14 +13,11 @@ CREATE TABLE IF NOT EXISTS users (
     wallet_address TEXT,
     email TEXT,
     password_hash TEXT,
+    private_key TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     disabled_at TEXT
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_wallet_address
-    ON users(wallet_address) WHERE wallet_address IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
-    ON users(email) WHERE email IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS auth_nonces (
     address TEXT PRIMARY KEY,
@@ -96,7 +93,7 @@ CREATE TABLE IF NOT EXISTS media_objects (
     id TEXT PRIMARY KEY,
     content_id TEXT NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
     kind TEXT NOT NULL CHECK (
-        kind IN ('SOURCE', 'VIDEO', 'AUDIO', 'AUDIO_INDEX', 'MANIFEST')
+        kind IN ('SOURCE', 'VIDEO', 'AUDIO', 'AUDIO_INDEX', 'MANIFEST', 'REPLAY_PARAMS')
     ),
     object_key TEXT NOT NULL UNIQUE,
     content_type TEXT NOT NULL,
@@ -108,6 +105,33 @@ CREATE TABLE IF NOT EXISTS media_objects (
 );
 CREATE INDEX IF NOT EXISTS idx_media_objects_content_id
     ON media_objects(content_id);
+
+CREATE TABLE IF NOT EXISTS content_chain (
+    content_id TEXT PRIMARY KEY REFERENCES contents(id),
+    chain_state TEXT NOT NULL DEFAULT 'NONE'
+        CHECK(chain_state IN ('NONE','MINTING','MINTED','FAILED')),
+    token_id INTEGER,
+    tx_hash TEXT,
+    contract_address TEXT,
+    token_uri TEXT,
+    owner_wallet TEXT,
+    error_message TEXT,
+    minted_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
+CREATE TABLE IF NOT EXISTS content_editions (
+    id TEXT PRIMARY KEY,
+    content_id TEXT NOT NULL REFERENCES contents(id),
+    token_id INTEGER NOT NULL,
+    tx_hash TEXT NOT NULL,
+    owner_wallet TEXT NOT NULL,
+    token_uri TEXT NOT NULL,
+    edition_type TEXT NOT NULL DEFAULT 'CLAIM' CHECK(edition_type IN ('CREATOR','CLAIM')),
+    minted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    UNIQUE(content_id, token_id)
+);
 """
 
 
@@ -122,6 +146,15 @@ class Database:
             self._ensure_column(connection, "users", "wallet_address", "TEXT")
             self._ensure_column(connection, "users", "email", "TEXT")
             self._ensure_column(connection, "users", "password_hash", "TEXT")
+            self._ensure_column(connection, "users", "private_key", "TEXT")
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_wallet_address "
+                "ON users(wallet_address) WHERE wallet_address IS NOT NULL"
+            )
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email "
+                "ON users(email) WHERE email IS NOT NULL"
+            )
             self._ensure_column(connection, "contents", "error_message", "TEXT")
             self._ensure_column(connection, "processing_jobs", "error_code", "TEXT")
             self._ensure_column(connection, "processing_jobs", "error_message", "TEXT")
@@ -256,15 +289,25 @@ class Database:
         user_id: str,
         email: str,
         password_hash: str,
+        wallet_address: str,
+        stored_private_key: str | None,
         created_at: str,
     ) -> None:
         with self.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO users (id, email, password_hash, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO users (id, email, password_hash, wallet_address, private_key, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (user_id, email, password_hash, created_at, created_at),
+                (
+                    user_id,
+                    email,
+                    password_hash,
+                    wallet_address,
+                    stored_private_key,
+                    created_at,
+                    created_at,
+                ),
             )
 
     def get_user_by_email(self, email: str) -> sqlite3.Row | None:
@@ -638,6 +681,25 @@ class Database:
                 (deleted_at, content_id),
             )
             return True
+
+    def rename_owned_content(
+        self,
+        *,
+        owner_user_id: str,
+        content_id: str,
+        display_label: str,
+        updated_at: str,
+    ) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE contents
+                SET display_label = ?, updated_at = ?
+                WHERE id = ? AND owner_user_id = ? AND state != 'DELETED'
+                """,
+                (display_label, updated_at, content_id, owner_user_id),
+            )
+            return cursor.rowcount > 0
 
     def list_staging_cleanup_jobs(self) -> list[sqlite3.Row]:
         with self.connect() as connection:

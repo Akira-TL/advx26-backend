@@ -9,6 +9,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from eth_account import Account
+from eth_utils import to_checksum_address
+
 from .database import Database
 
 
@@ -32,6 +35,14 @@ class UserPrincipal:
 class IssuedUserToken:
     user_id: str
     token: str
+
+
+@dataclass(frozen=True, slots=True)
+class RegisteredEmailUser:
+    user_id: str
+    wallet_address: str
+    private_key: str
+    private_key_stored: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,19 +85,31 @@ class UserTokenService:
     def __init__(self, database: Database) -> None:
         self.database = database
 
-    def register_email(self, email: str, password: str) -> str:
+    def register_email(
+        self, email: str, password: str, *, store_private_key: bool = False
+    ) -> RegisteredEmailUser:
         user_id = uuid.uuid4().hex
         now = _utc_now()
+        account = Account.create()
+        wallet_address = to_checksum_address(account.address)
+        private_key = "0x" + account.key.hex()
         try:
             self.database.create_email_user(
                 user_id=user_id,
                 email=email,
                 password_hash=_hash_password(password),
+                wallet_address=wallet_address,
+                stored_private_key=private_key if store_private_key else None,
                 created_at=now,
             )
         except sqlite3.IntegrityError as error:
             raise EmailAlreadyRegistered("邮箱已被注册") from error
-        return user_id
+        return RegisteredEmailUser(
+            user_id=user_id,
+            wallet_address=wallet_address,
+            private_key=private_key,
+            private_key_stored=store_private_key,
+        )
 
     def login_email(self, email: str, password: str) -> IssuedUserToken | None:
         row = self.database.get_user_by_email(email)

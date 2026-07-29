@@ -4,6 +4,11 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Load .env from project root so os.getenv() picks up values below.
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
 
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
@@ -85,6 +90,24 @@ class Settings:
             os.getenv("BACKEND_FAILED_STAGING_MAX_BYTES", str(512 * 1024 * 1024))
         )
     )
+    chain_rpc_url: str = field(
+        default_factory=lambda: os.getenv(
+            "BACKEND_CHAIN_RPC_URL",
+            "https://k8s.testnet.json-rpc.injective.network/",
+        )
+    )
+    chain_id: int = field(
+        default_factory=lambda: int(os.getenv("BACKEND_CHAIN_ID", "1439"))
+    )
+    chain_contract_address: str = field(
+        default_factory=lambda: os.getenv("BACKEND_CHAIN_CONTRACT_ADDRESS", "")
+    )
+    chain_operator_private_key: str = field(
+        default_factory=lambda: os.getenv("BACKEND_CHAIN_OPERATOR_PRIVATE_KEY", "")
+    )
+    chain_enabled: bool = field(
+        default_factory=lambda: _env_bool("BACKEND_CHAIN_ENABLED", False)
+    )
 
     def __post_init__(self) -> None:
         self.base_dir = Path(self.base_dir).resolve()
@@ -100,7 +123,7 @@ class Settings:
         ).resolve()
         self.renderer_project_dir = Path(
             self.renderer_project_dir
-            or self.base_dir.parent
+            or self.base_dir
             / "Sound-Visualization-Kaleidoscope-effect"
             / "particle-field"
         ).resolve()

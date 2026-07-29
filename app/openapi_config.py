@@ -17,6 +17,7 @@ ERROR_DESCRIPTIONS = {
     409: "The requested content state transition is not allowed.",
     413: "The uploaded audio exceeds the configured byte limit.",
     416: "The requested byte range is invalid or outside the object.",
+    500: "An unexpected internal server error occurred.",
     503: "A required service dependency or immutable object is unavailable.",
 }
 

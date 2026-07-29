@@ -5,3 +5,12 @@ __pycache__/
 storage/
 injective_works/
 
+.env
+_v.mp3
+_api_part1.md
+_api_part2.md
+_api_section.md
+_flash_api_doc.md
+_update_readme.py
+Sound-Visualization-Kaleidoscope-effect/
+releases/

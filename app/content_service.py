@@ -58,7 +58,7 @@ class ContentService:
         source_filename = Path(raw_filename).name or "audio"
         source_content_type = audio.content_type or "application/octet-stream"
         now = _utc_now()
-        display_label = f"声音碎片 #{content_id[:4].upper()}"
+        display_label = Path(source_filename).stem or f"声音碎片 #{content_id[:4].upper()}"
         visual_seed = _visual_seed(content_id)
 
         spool, byte_length, sha256 = await self._read_source(audio)

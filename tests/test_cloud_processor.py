@@ -169,7 +169,7 @@ class CloudProcessorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(job["stage"], "READY")
             self.assertEqual(
                 {row["kind"] for row in media},
-                {"SOURCE", "AUDIO", "AUDIO_INDEX", "VIDEO", "MANIFEST"},
+                {"SOURCE", "AUDIO", "AUDIO_INDEX", "VIDEO", "MANIFEST", "REPLAY_PARAMS"},
             )
             manifest_row = next(row for row in media if row["kind"] == "MANIFEST")
             with store.open(manifest_row["object_key"]) as source_file:
